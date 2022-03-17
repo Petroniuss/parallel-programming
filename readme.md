@@ -1,0 +1,3 @@
+## AGH Parallel Programming
+
+- MPI
