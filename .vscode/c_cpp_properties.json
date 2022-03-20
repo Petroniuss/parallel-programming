@@ -4,14 +4,15 @@
             "name": "Mac",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/local/Cellar/open-mpi/4.1.2/include"
+                "/usr/local/Cellar/open-mpi/4.1.2/include",
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX12.sdk/usr/include"
             ],
             "defines": [],
             "macFrameworkPath": [],
-            "compilerPath": "/usr/local/bin/gcc-11",
-            "cStandard": "gnu17",
-            "cppStandard": "gnu++17",
-            "intelliSenseMode": "macos-gcc-x64"
+            "compilerPath": "/usr/local/bin/mpicc",
+            "cStandard": "c11",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "macos-clang-x64"
         }
     ],
     "version": 4
