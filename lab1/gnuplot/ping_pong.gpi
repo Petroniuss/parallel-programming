@@ -1,0 +1,12 @@
+set terminal qt font "Helvetica, 15"
+
+set title "Ping pong" 
+set grid
+set style line 1 \
+    linecolor rgb '#0060ad' \
+    linetype 1 linewidth 2 \
+    pointtype 7 pointsize 1.5
+set logscale x 2
+
+
+plot "./build/ping_pong.dat" with linespoints linestyle 1
