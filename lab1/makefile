@@ -1,42 +1,61 @@
 CC = "mpicc"
 MPIEXEC = "mpiexec"
+NODE_SUFFIX = "single_node"
+SSEND_PREFIX = "ssend"
+MEASUREMENTS_DIR = "measurements"
 ifeq ($(VNODE_CLUSTER_SINGLE_NODE), "true")
 	MPIEXEC = "mpiexec -machinefile ./vcluster-config/single_node"
 endif
 ifeq ($(VNODE_CLUSTER_TWO_NODES), "true")
 	MPIEXEC = "mpiexec -machinefile ./vcluster-config/two_nodes"
+	NODE_SUFFIX = "two_nodes"
 endif
 
 TRIALS ?= 3
 DATA_FILE_ID ?= 0
 DATA_TO_BE_TRANFERRED_BYTES = 100000000 # 100 MB
+
+MESSAGE_STEP_SIZE_BYTES = 100000 # 100 kB
 MAX_MESSAGE_SIZE = 10000000 # 10 MB
-MESSAGE_STEP_SIZE_BYTES = 50000 # 50 kB
 
-# homework
-hw-send-single-node-plot: 
-	mkdir -p ./plots
-	./gnuplot/composite_stats.sh "./build/hw_send_single_node-*.dat" > "./build/hw_send_single_node_composite.dat"
-	gnuplot -persistent gnuplot/hw_send_single_node.gpi
+MESSAGE_STEP_SMALL_STEP_SIZE_BYTES = 1000 # 1kB
+SMALL_STEP_THRESHOLD_BYTES = 250000 # 250kb
 
-hw-send-measure-single-node-multiple-runs:
+MESSAGE_STEP_VERY_SMALL_STEP_SIZE_BYTES = 25 # 1kB
+VERY_SMALL_STEP_THRESHOLD_BYTES = 1000 # 250kb
+
+ssend-plot: 
+	./gnuplot/composite_stats.sh "./$(MEASUREMENTS_DIR)/$(SSEND_PREFIX)_$(NODE_SUFFIX)-*.dat" > "./build/$(SSEND_PREFIX)_$(NODE_SUFFIX)_composite.dat"
+	gnuplot -persistent gnuplot/$(SSEND_PREFIX)_$(NODE_SUFFIX).gpi
+
+ssend-multiple-runs:
 	for (( i=1; i<=${TRIALS}; i++ )) ; do \
-		$(MAKE) hw-send-measure-single-node DATA_FILE_ID=$$i ; \
+		$(MAKE) ssend-run DATA_FILE_ID=$$i ; \
 	done
 
-hw-send-measure-single-node: build/hw_send 
-	rm -f "build/hw_send-${DATA_FILE_ID}.dat"
-	for message_size in 1 32 64 256 512 1024 2048 4096 8192 16384 32768 ; do \
-		$(MPIEXEC) -n 2 ./build/hw_send $$message_size $(DATA_TO_BE_TRANFERRED_BYTES) "build/hw_send_single_node-${DATA_FILE_ID}.dat"; \
+ssend-run: build/ssend 
+	mkdir -p ./${MEASUREMENTS_DIR}
+	rm -f "${MEASUREMENTS_DIR}/ssend-${DATA_FILE_ID}.dat"
+
+	message_size=1 ; while [[ $$message_size -le $(VERY_SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_VERY_SMALL_STEP_SIZE_BYTES))) ; \
+		sleep 1 ; \
+    done
+
+	message_size=1000 ; while [[ $$message_size -le $(SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_SMALL_STEP_SIZE_BYTES))) ; \
+		sleep 1 ; \
     done
 
 	message_size=$(MESSAGE_STEP_SIZE_BYTES) ; while [[ $$message_size -le $(MAX_MESSAGE_SIZE) ]] ; do \
-		$(MPIEXEC) -n 2 ./build/hw_send $$message_size $(DATA_TO_BE_TRANFERRED_BYTES) "build/hw_send_single_node-${DATA_FILE_ID}.dat"; \
+		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
         ((message_size = message_size + $(MESSAGE_STEP_SIZE_BYTES))) ; \
     done
 
-build/hw_send: src/hw_send.c build
-	$(CC) -o build/hw_send src/hw_send.c
+build/ssend: src/ssend.c build
+	$(CC) -o build/ssend src/ssend.c
 
 # ping-pong
 run-ping-pong: build/ping_pong

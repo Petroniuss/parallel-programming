@@ -5,12 +5,12 @@ set style line 1 \
     linetype 1 linewidth 1 \
     pointtype 7 pointsize 1.2
 
-set title "Przepustowość P2P dla różnych rozmiarów komunikatów na tej samej maszynie" 
+set title "Przepustowość P2P dla jednej maszyny z użyciem Ssend" 
 set ylabel "Przepustowość [Mbit/s]"
 set xlabel "Rozmiar komunikatu [B]"
-plot "./build/hw_send_single_node_composite.dat" using 1:2:3 with yerrorbars linestyle 1 notitle
+plot "./build/ssend_single_node_composite.dat" using 1:2:3 with yerrorbars linestyle 1 notitle
 
 set terminal png
 date = system("date +%F_%H-%M-%S")
-set output './plots/hw_send_single_node_composite-'.date.'.png'
+set output './plots/ssend_single_node_composite-'.date.'.png'
 replot
