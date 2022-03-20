@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
   int partner_rank = (world_rank + 1) % 2;
   long int n = strtol(argv[1], NULL, 10);
   FILE* datafile_fp = NULL;
-  if (argc > 1) {
+  if (argc > 2) {
     char* data_file = argv[2];
     FILE* datafile_fp = fopen(data_file, "a+");
   }
