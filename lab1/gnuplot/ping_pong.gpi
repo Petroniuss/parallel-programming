@@ -1,12 +1,14 @@
 set terminal qt font "Helvetica, 15"
-
-set title "Ping pong" 
 set grid
 set style line 1 \
     linecolor rgb '#0060ad' \
     linetype 1 linewidth 2 \
-    pointtype 7 pointsize 1.5
+    pointtype 7 pointsize 1.2
+
+set title "Ping pong" 
+set ylabel "Time [s]"
+set xlabel "Number of ping-pong exchanges"
 set logscale x 2
+set logscale y 2
 
-
-plot "./build/ping_pong.dat" with linespoints linestyle 1
+plot "./build/ping_pong_composite.dat" using 1:2:3 with yerrorbars linestyle 1 notitle
