@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <mpi.h>
 
-int main (int argc, char * argv[])
-{
+int main (int argc, char * argv[]) {
 
     char message[] = "I was sent to you";
 
