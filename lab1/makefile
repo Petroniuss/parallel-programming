@@ -4,10 +4,10 @@ NODE_SUFFIX = "single_node"
 IBSEND_PREFIX = "ibsend"
 SSEND_PREFIX = "ssend"
 MEASUREMENTS_DIR = "measurements"
-ifeq ($(VNODE_CLUSTER_SINGLE_NODE), "true")
+ifeq (${VNODE_CLUSTER_SINGLE_NODE}, true)
 	MPIEXEC = "mpiexec -machinefile ./vcluster-config/single_node"
 endif
-ifeq ($(VNODE_CLUSTER_TWO_NODES), "true")
+ifeq (${VNODE_CLUSTER_TWO_NODES}, true)
 	MPIEXEC = "mpiexec -machinefile ./vcluster-config/two_nodes"
 	NODE_SUFFIX = "two_nodes"
 endif
