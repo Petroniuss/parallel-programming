@@ -1,5 +1,8 @@
 ## Lab1
 
+Running makefile on vcluster requires setting:
+`VNODE_CLUSTER_ENV=true`
+
 ### Building 
 
 Compile mpi program: `mpicc -o pi pi.c`

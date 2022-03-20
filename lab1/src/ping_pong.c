@@ -25,9 +25,12 @@ int main(int argc, char* argv[]) {
 
   int partner_rank = (world_rank + 1) % 2;
   long int n = strtol(argv[1], NULL, 10);
-  char* data_file = argv[2];
+  FILE* datafile_fp = NULL;
+  if (argc > 1) {
+    char* data_file = argv[2];
+    FILE* datafile_fp = fopen(data_file, "a+");
+  }
 
-  FILE* datafile_fp = fopen(data_file, "a+");
 
   // master
   // send ping, receive pong
@@ -51,7 +54,9 @@ int main(int argc, char* argv[]) {
     double end_wtime = MPI_Wtime();
     double measured_time = end_wtime - start_wtime;
     INFO_PRINTF("Measured time: %.6fs", measured_time);
-    fprintf(datafile_fp, "%ld %f\n", n, measured_time);
+    if (datafile_fp != NULL) {
+      fprintf(datafile_fp, "%ld %f\n", n, measured_time);
+    }
 
   // slave
   // receive ping, send back pong
