@@ -5,10 +5,10 @@ IBSEND_PREFIX = "ibsend"
 SSEND_PREFIX = "ssend"
 MEASUREMENTS_DIR = "measurements"
 ifeq (${VNODE_CLUSTER_SINGLE_NODE}, true)
-	MPIEXEC = "mpiexec -machinefile ./vcluster-config/single_node"
+	MPIEXEC = mpiexec -machinefile ./vcluster-config/single_node
 endif
 ifeq (${VNODE_CLUSTER_TWO_NODES}, true)
-	MPIEXEC = "mpiexec -machinefile ./vcluster-config/two_nodes"
+	MPIEXEC = mpiexec -machinefile ./vcluster-config/two_nodes
 	NODE_SUFFIX = "two_nodes"
 endif
 
@@ -40,16 +40,14 @@ ibsend-run: build/ibsend
 	mkdir -p ./${MEASUREMENTS_DIR}
 	rm -f "${MEASUREMENTS_DIR}/ibsend-${DATA_FILE_ID}.dat"
 
-	message_size=1 ; while [[ $$message_size -le $(VERY_SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
-		$(MPIEXEC) -n 2 ./build/ibsend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${IBSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+	message_size="1" ; while [[ $$message_size -le $(VERY_SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+		${MPIEXEC} -n 2 ./build/ibsend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${IBSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
         ((message_size = message_size + $(MESSAGE_STEP_VERY_SMALL_STEP_SIZE_BYTES))) ; \
-		sleep 1 ; \
     done
 
 	message_size=$(VERY_SMALL_STEP_THRESHOLD_BYTES) ; while [[ $$message_size -le $(SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
 		$(MPIEXEC) -n 2 ./build/ibsend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${IBSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
         ((message_size = message_size + $(MESSAGE_STEP_SMALL_STEP_SIZE_BYTES))) ; \
-		sleep 1 ; \
     done
 
 	message_size=$(MESSAGE_STEP_SIZE_BYTES) ; while [[ $$message_size -le $(MAX_MESSAGE_SIZE) ]] ; do \
@@ -74,16 +72,14 @@ ssend-run: build/ssend
 	mkdir -p ./${MEASUREMENTS_DIR}
 	rm -f "${MEASUREMENTS_DIR}/ssend-${DATA_FILE_ID}.dat"
 
-	message_size=1 ; while [[ $$message_size -le $(VERY_SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+	message_size="1" ; while [[ $$message_size -le $(VERY_SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
 		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
         ((message_size = message_size + $(MESSAGE_STEP_VERY_SMALL_STEP_SIZE_BYTES))) ; \
-		sleep 1 ; \
     done
 
 	message_size=$(VERY_SMALL_STEP_THRESHOLD_BYTES) ; while [[ $$message_size -le $(SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
 		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
         ((message_size = message_size + $(MESSAGE_STEP_SMALL_STEP_SIZE_BYTES))) ; \
-		sleep 1 ; \
     done
 
 	message_size=$(MESSAGE_STEP_SIZE_BYTES) ; while [[ $$message_size -le $(MAX_MESSAGE_SIZE) ]] ; do \
