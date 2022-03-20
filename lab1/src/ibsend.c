@@ -82,7 +82,8 @@ int main(int argc, char* argv[]) {
     // synchronization
     MPI_Barrier(MPI_COMM_WORLD);
     double start_wtime = MPI_Wtime();
-    for (long int round_id = 0; round_id < ping_pong_rounds; round_id++) {
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
       MPI_Request request;
       MPI_Ibsend(ping_message, ping_buffer_size, MPI_CHAR, partner_rank,
                message_id(round_id, true), MPI_COMM_WORLD, &request);
@@ -121,7 +122,8 @@ int main(int argc, char* argv[]) {
     // synchronization
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Request request;
-    for (long int round_id = 0; round_id < ping_pong_rounds; round_id++) {
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
       if (round_id != 0) {
         // Let's wait for the MPI_Ibsend to complete before progressing further.
         // Should reutrn immediatly in our case since message must've been sent at this point.

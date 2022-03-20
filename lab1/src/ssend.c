@@ -77,7 +77,8 @@ int main(int argc, char* argv[]) {
     // synchronization
     MPI_Barrier(MPI_COMM_WORLD);
     double start_wtime = MPI_Wtime();
-    for (long int round_id = 0; round_id < ping_pong_rounds; round_id++) {
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
       MPI_Send(ping_message, ping_buffer_size, MPI_CHAR, partner_rank,
                message_id(round_id, true), MPI_COMM_WORLD);
       DEBUG_PRINTF("Round: %ld, sent: %s\n", round_id, ping_message);
@@ -106,7 +107,8 @@ int main(int argc, char* argv[]) {
 
     // synchronization
     MPI_Barrier(MPI_COMM_WORLD);
-    for (long int round_id = 0; round_id < ping_pong_rounds; round_id++) {
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
       MPI_Recv(ping_buffer, ping_buffer_size, MPI_CHAR, partner_rank,
                message_id(round_id, true), MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       DEBUG_PRINTF("Round: %ld, received: %s\n", round_id, ping_buffer);
