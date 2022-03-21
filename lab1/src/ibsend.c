@@ -85,6 +85,7 @@ int main(int argc, char* argv[]) {
     long int round_id;
     for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
       MPI_Request request;
+      ping_message[round_id % message_size_bytes] = (char) rand();
       MPI_Ibsend(ping_message, ping_buffer_size, MPI_CHAR, partner_rank,
                message_id(round_id, true), MPI_COMM_WORLD, &request);
       DEBUG_PRINTF("Round: %ld, sent: %s\n", round_id, ping_message);
@@ -137,6 +138,8 @@ int main(int argc, char* argv[]) {
                message_id(round_id, true), MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       DEBUG_PRINTF("Round: %ld, received: %s\n", round_id, ping_buffer);
 
+      pong_message[round_id % message_size_bytes] = ping_buffer[round_id % message_size_bytes];
+      DEBUG_PRINTF("%c", pong_message[round_id % message_size_bytes]);
       MPI_Ibsend(pong_message, pong_buffer_size, MPI_CHAR, partner_rank,
                message_id(round_id, false), MPI_COMM_WORLD, &request);
       DEBUG_PRINTF("Round: %ld, sent: %s\n", round_id, pong_message);
