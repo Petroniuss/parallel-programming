@@ -16,3 +16,8 @@ Wall-time: 1h, rough estimate: 1m max on a single core
 
 ## Run on vcluster
 `mpiexec -machinefile ./vcluster-config/allnodes -np 12 ./build/pi 4000000000`
+
+## Schedule a job on prometheus
+But first verify that the script has a chance to work:
+`srun --nodes=1 --ntasks=1 --time=00:5:00 --partition=plgrid --account=plgmpr22 --pty /bin/bash`
+`sbatch run.sh`
