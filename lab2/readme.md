@@ -7,3 +7,12 @@ Chosen sizes:
 
 Let's try that or decrease the size of the problem.
 Wall-time: 1h, rough estimate: 1m max on a single core 
+
+## Compilation
+`make`
+
+## Run locally
+`mpiexec -n 4 build/pi 4000000000`
+
+## Run on vcluster
+`mpiexec -machinefile ./vcluster-config/allnodes -np 12 ./build/pi 4000000000`
