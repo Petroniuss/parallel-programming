@@ -4,7 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+
 #define TIME_SEED time(NULL)
+#ifndef DBL_DECIMAL_DIG        
+#define DBL_DECIMAL_DIG        17
+#endif
 
 long int compute_points_within(long long int n) {
   long long int i, count;
