@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.18.4
+# v0.17.5
 
 using Markdown
 using InteractiveUtils
@@ -23,9 +23,11 @@ begin
 end
 
 # ╔═╡ aecadb90-bf2c-4011-a70a-d27e38125bb6
-function measure2size(msm_raw)
+function lab1_measurements(csv_file)
+	lab1_data_dir = "lab1/measurements/csv"
+	raw_df = CSV.read("$lab1_data_dir/$csv_file", DataFrame)
 	res_df = DataFrame(size=Int[], throughput=Measurement{Float32}[])
-    for df in groupby(msm_raw, :size)
+    for df in groupby(raw_df, :size)
 		throughput = df[:, :throughput]
 		push!(res_df, (df[1,:size], measurement(mean(throughput), std(throughput))))
 	end
@@ -35,54 +37,338 @@ end;
 # ╔═╡ 6e8d59e4-661f-4b13-a983-c10e2acb07d9
 function select_smaller_than(df, message_size)
 	df |> @filter(_.size < message_size) |> DataFrame
-end
+end;
 
 # ╔═╡ 806718ac-7efb-4083-8cea-989c730b5765
 begin
-	ssend_single_node = measure2size(CSV.read("measurements/csv/ssend_single_node.csv", DataFrame))
-	
-	ssend_two_nodes = measure2size(CSV.read("measurements/csv/ssend_two_nodes.csv", DataFrame))
-	
-	ibsend_single_node = measure2size(CSV.read("measurements/csv/ibsend_single_node.csv", DataFrame))
-	
-	ibsend_two_nodes = measure2size(CSV.read("measurements/csv/ibsend_two_nodes.csv", DataFrame))
+	ssend_single_node = lab1_measurements("ssend_single_node.csv")
+	ssend_two_nodes = lab1_measurements("ssend_two_nodes.csv")
+	ibsend_single_node = lab1_measurements("ibsend_single_node.csv")
+	ibsend_two_nodes = lab1_measurements("ibsend_two_nodes.csv")
 end;
+
+# ╔═╡ 74bcdc04-ba8e-4bc9-bc44-29008045005f
+md"""
+## Metody programowania równoległego
+Patryk Wojtyczek
+
+Kod programów jak i skrypty do uruchomiania programów zamieściłem w zipie.
+
+#### Część 1 - Komunikacja P2P
+Programy do pomiaru przepustowości zostały napisane w języku `c` i 
+były wykonywane na klastrze `vnode-*.dydaktyka.icsr.agh.edu.pl`. 
+Celem zadania jest zmierzenie wartości opóźnienia i charakterystyki przepustowości połączeń w klastrze.
+
+Funkcje wykorzystane do komunikacji:
+- `ssend` - Synchronous blocking send. 
+Blokuje dopóki odbiorca nie odebrał wiadomości. Po wykonaniu tej funkcji można bezpiecznie
+korzystać z przekazanego bufora.
+
+- `ibsend` - Asynchronous non-blocking send.
+Funkcja ta stworzy kopię przekazanych danych i wyśle ją w późniejszym czasie.
+Funkcja nie blokuje wywołującego, i po jej wywołaniu nie można modyfikować bufora gdyż
+mógł on jeszcze nie zostać skopiowany. Do sprawdzenia czy bufora można użyć służy funkcja
+`MPI_Test` lub `MPI_Wait`.
+"""
+
+# ╔═╡ 86bc5974-d0ff-4d86-bce7-0d87114529a4
+md"""
+Pomiary wykonywałem w następujący sposób. 
+Z góry ustaliłem ilość danych do przesłania - 100MB. 
+Dla każdej rozważanej wielkości wiadomości obliczałem ile wiadomości trzeba wysłać aby przesłać
+ustaloną wyżej ilość danych. Na podstawie czasu potrzebnego na wykonanie tranferu tych danych obliczałem 
+przepustowość. 
+
+Jako MB - przyjąłem (być może zaskakująco) $10^6$B zgodnie z układem SI.
+
+Zmierzyłem wiadomości w zakresie 1B-10MB, przy czym większość zmierzonych
+rozmiarów (około 300) mieści się poniżej 250kB, pozostałych jest około 100.
+Dla każdej wielkości wiadomości powtórzyłem pomiar trzykrotnie.
+"""
+
+# ╔═╡ ed774b67-b8ca-4215-b03f-542ff83df9f7
+md"""
+#### Przepustowość na pojedyńczym węźle
+
+Na pojedyńczym węźle przepustowość P2P jest olbrzymia. 
+Największy throughput uzyskujemy dla wiadomości o rozmiarze 100kB - 1MB, 
+później throughput zaczyna spadać. Dla bardzo małych wiadmości throughput jest bardzo niski
+gdyż narzut ze względu na komunikację między procesami jest znacznie większy od narzutu ze względu na 
+przenoszenie danych.
+
+`Ssend` osiąga większy throughput od ibsend ze względu na fakt, że ssend nie robi dodatkowych kopii i to koszt tego
+kopiowania widzimy na wykresie. Gdyby program na którym testujemy nie działał na zasadzie 
+`wyślij-ping, odbierz-ping, wyślij-pong, odbierz-pong` tylko raczej 
+`wyślij kilkanaście wiadomości i jakiś czas później sprawdź czy zostały wysłane`
+to myślę, że buforowanie wiadomości miałoby pozytywny wpływ na performance.
+
+Poniżej przedstawiłem wykresy przepustowości dla wszystkich przetestowanych rozmiarów 
+i tylko dla mniejszych rozmiarów wiadomości.
+"""
+
 
 # ╔═╡ d7515cd9-fbbd-4f82-85f7-a3ad8b93aa38
 begin
 	plot(ylabel="Przepustowość [MB/s]", xlabel="Rozmiar wiadomości [B]")
+	title!("Przepustowość na pojedyńczym węźle")
 	@df ssend_single_node scatter!(:size, :throughput, label=".ssend")
 	@df ibsend_single_node scatter!(:size, :throughput, label=".ibsend")
 end
 
+
 # ╔═╡ fc31e18d-2524-45b4-be45-2b9deaee4f76
 begin
-	plot(ylabel="Przepustowość [MB/s]", xlabel="Rozmiar wiadomości [B]")
-	@df ssend_two_nodes scatter!(:size, :throughput, label=".ssend")
-	@df ibsend_two_nodes scatter!(:size, :throughput, label=".ibsend")
+	plot(ylabel="Przepustowość [MB/s]", xlabel="Rozmiar wiadomości [B]", legend=:topleft)
+	title!("Przepustowość na pojedyńczym węźle")
+
+	threshold_single_node = 3e5 
+	@df select_smaller_than(ssend_single_node, threshold_single_node) scatter!(:size, :throughput, label=".ssend")
+	@df select_smaller_than(ibsend_single_node, threshold_single_node) scatter!(:size, :throughput, label=".ibsend")
 end
 
-# ╔═╡ d24291cb-1b70-4355-af18-29addca95cb0
+# ╔═╡ f0f03907-6aba-433b-9878-60bbc6c7f62e
+md"""
+#### Przepustowość na dwóch węzłach
 
+Tutaj wykonane pomiary były obarczone bardzo dużą wariancją. 
+Wykres wygląda o tyle podobnie, że znowu małe rozmiary wiadmości dają niską przepustowość i wraz
+ze wzrostem rozmiaru wiadomości osiągamy coraz lepszą przepustowość.
+Mimo wszystko widać, że przepustowość spadła conajmniej 10-krotnie ze względu na komunikację przez sieć.
+Nie widać tutaj też trendu: im większy rozmiar wiadomości tym throughput zaczyna spadać.
+Różnice pomiędzy funkcjami wydają się być pomijalne, głównie ze względu na dominujący narzut w samej komunikacji.
+Widać też ciekawy spadek przepustowości w okolicach $1.25 \cdot 10^5 kB$ 
+choć ciężko powiedzieć czym jest spowodowany.
+"""
 
-# ╔═╡ a019c345-f912-42b0-b03f-cc9201d6c3be
-threshold_size = 3e5 
 
 # ╔═╡ 803d33bc-0320-4c67-9573-c7b98a869a2a
 begin
 	plot(ylabel="Przepustowość [MB/s]", xlabel="Rozmiar wiadomości [B]")
-	@df select_smaller_than(ssend_single_node, threshold_size) scatter!(:size, :throughput, label=".ssend")
-	@df select_smaller_than(ibsend_single_node, threshold_size) scatter!(:size, :throughput, label=".ibsend")
+	title!("Przepustowość na dwóch maszynach")
+	@df ssend_two_nodes scatter!(:size, :throughput, label=".ssend")
+	@df ibsend_two_nodes scatter!(:size, :throughput, label=".ibsend")
 end
 
 # ╔═╡ 419114e5-54a1-4ba6-8914-0327229711ee
 begin
 	plot(ylabel="Przepustowość [MB/s]", xlabel="Rozmiar wiadomości [B]")
-	@df select_smaller_than(ssend_two_nodes, threshold_size) scatter!(:size, :throughput, label=".ssend")
-	@df select_smaller_than(ibsend_two_nodes, threshold_size) scatter!(:size, :throughput, label=".ibsend")
+	title!("Przepustowość na dwóch maszynach")
+
+	threshold_two_nodes = 3e5 
+	@df select_smaller_than(ssend_two_nodes, threshold_two_nodes) scatter!(:size, :throughput, label=".ssend")
+	@df select_smaller_than(ibsend_two_nodes, threshold_two_nodes) scatter!(:size, :throughput, label=".ibsend")
 end
 
-# ╔═╡ 4acc184e-8fa2-4238-b521-98a0a7caa7b9
+# ╔═╡ a0c5dc3f-be3d-4a3e-a3ae-4eea77f8dfc5
+function delay(df)
+	dff = df |> @filter(_.size <= 101) |> DataFrame
+	thr = dff[:,:throughput] 
+	time = 1 / thr
+	measurement(mean(time), std(time))
+end;
+
+# ╔═╡ faa0408d-f418-413f-8480-b63ffbdb4a9d
+md"""
+#### Opóźnienie
+Na podstawie zebranych danych można oszacować opóźnienie (czyli czas na wysłanie 1B) w komunikacji. 
+
+W przypadku funkcji `ssend` jest to:
+- jeden węzeł: $(delay(CSV.read("lab1/measurements/csv/ssend_single_node.csv", DataFrame)))s
+- dwa węzły: $(delay(CSV.read("lab1/measurements/csv/ssend_two_nodes.csv", DataFrame)))s
+
+W przypadku funkcji `ibsend` jest to:
+- jeden węzeł: $(delay(CSV.read("lab1/measurements/csv/ibsend_single_node.csv", DataFrame)))s
+- dwa węzły: $(delay(CSV.read("lab1/measurements/csv/ibsend_two_nodes.csv", DataFrame)))s
+"""
+
+
+# ╔═╡ a7a4a356-2493-4f99-9652-6b9e9e4b0af2
+md"""
+#### Część 2 - Badanie efektywności programu równoległego
+
+Program do szacowania liczby pi metodą monte carlo został napisany w języku `c`. 
+Wyniki zostały zebrane z wielokrotnego uruchomiania go na prometeuszu.
+Program posiada znikomą część sekwencyjną (faza reduce, gdy czekamy na wyniki od pozostałych węzłów) 
+stąd możemy go porównywać do programu idealnie równoległego.
+
+##### Pomiary
+Pomiary wykonałem dla pięciu liczb punktów:
+- π s1: 20000000 = $2 ⋅ 10^7$ 
+- π s2: 40000000 = $4 ⋅ 10^7$ - mniej niż sekunda dla jednego węzła.
+- π s3: 400000000 = $4 ⋅ 10^8$
+- π s4: 4000000000 = $4 ⋅ 10^9$
+- π s5: 20000000000 = $2 ⋅ 10^{10}$ - ponad minuta ze wszystkimi węzłami.
+
+Pomiary zostały powtórzone wielokrotnie (między 10-20 razy) oprócz grupy π s5 gdzie udało 
+mi się je wykonać tylko raz i rozpocząć drugi pomiar.
+
+Większość wykresów jest podzielona na dwa ze względu na fakt, że wykresy wyglądają dość nieczytelnie 
+z pięcioma grupami.
+"""
+
+# ╔═╡ c3780def-41ca-4648-ad73-034f3f782dc3
+function lab2_measurements(csv_file)
+	lab1_data_dir = "lab2/data"
+	raw_df = CSV.read("$lab1_data_dir/$csv_file", DataFrame)
+	res_df = DataFrame(size=Int[], throughput=Measurement{Float32}[])
+    for df in groupby(raw_df, :size)
+		throughput = df[:, :throughput]
+		# nodes,pi,time,points,points_within
+		push!(res_df, (df[1,:size], measurement(mean(throughput), std(throughput))))
+	end
+	res_df
+end;
+
+# ╔═╡ 8953fb85-6e35-4f2f-8018-0e37f393b1f4
+function measure(pi_by_points)
+	msm_df = DataFrame(nodes=Int[], time=Measurement{Float32}[])
+	for df in groupby(pi_by_points, :nodes, sort=true)
+		time = df[:,:time]
+		push!(msm_df, (df[:,:nodes][1], measurement(mean(time), std(time))))
+	end
+	msm_df
+end;
+
+# ╔═╡ 8bf38410-d62a-44ae-8683-08e327f9b1e7
+begin
+	lab1_data_dir = "lab2/data"
+	pi_df = CSV.read("$lab1_data_dir/data.csv", DataFrame)
+	pi_groupped = groupby(pi_df, :points, sort=true)
+	pi_s1, pi_s2, pi_s3, pi_s4, pi_s5 = measure.(collect(pi_groupped));
+	collect(pi_groupped)
+end;
+
+# ╔═╡ 0a97c46b-3d85-4737-a702-4c4e076ff81d
+begin 
+	function plot_sf!(df; kwargs...)
+		T = df[1,:time]
+		S  = T ./ df[:,:time]
+		p = df[:,:nodes]
+		@df df scatter!(p, (1 ./ S .- 1 ./ p) ./ (1 .- 1 ./ p); kwargs...)
+	end
+
+	function plot_speedup!(df; kwargs...)
+		T = df[1,:time]
+		@df df scatter!(:nodes, T ./ :time; kwargs...)
+	end
+
+	function plot_efficiency!(df; kwargs...)
+		T = df[1,:time]
+		@df df scatter!(:nodes, T ./ :time ./ :nodes; kwargs...)
+	end
+
+	function plot_time!(df; kwargs...)
+		@df df scatter!(:nodes, :time; kwargs...)
+	end
+end;
+
+# ╔═╡ 9433a028-f000-48af-a5d1-b7672d2cf936
+md"""
+##### Czas wykonania
+
+Widzimy, że czas wykonania w zależności od liczby węzłów przypomina funkcję $\frac{1}{x}$.
+Nie obserwujemy tutaj sytuacji w której dodawanie węzłów nie przyspiesza obliczenia. 
+Można się było odrobinę spodziewać jakiegoś spadku przy 8 węzłach ze względu na to, 
+że tyle mieści się w jednym sockecie, a później mamy droższą komunikację między socketami natomiast w
+tym problemie sama przepustowość komunikacji nie jest tak istotna bo nie przesyłamy dużych ilości danych.
+
+Przy większej ilości węzłów zysk z każdego następnego węzła nie jest 
+aż tak zauważalny jak dla kilku węzłów.
+"""
+
+
+# ╔═╡ 5db2f023-f4ed-47cc-98e5-edadac859907
+begin
+	plot(ylabel="Czas wykonania [s]", xlabel="ilość węzłów", xticks=0:1:12)
+	plot_time!(pi_s1; label="π s1")
+	plot_time!(pi_s2; label="π s2")
+end
+
+# ╔═╡ 801fbbda-2064-4ab0-948b-487ace41781f
+begin
+	plot(ylabel="Czas wykonania [s]", xlabel="ilość węzłów", xticks=0:1:12)
+	plot_time!(pi_s3; label="π s3")
+	plot_time!(pi_s4; label="π s4")
+	plot_time!(pi_s5; label="π s5")
+end
+
+# ╔═╡ ce0e8a8e-3fca-49dc-8103-09b6805d6f16
+md"""
+##### Przyspieszenie względne
+Widać, że o ile na początku trzymamy się idealne przyspieszenia to wraz z dodawniem
+nowych węzłow odchodzimy od tej linii. Jest to spowodowane częścią sekwencyjną naszego programu.
+Nawet jeśli podzieliśmy nasz problem na równe kawałki to różne węzły mogą skończyć swoje obliczenia w różnym
+czasie co zmusza nas na czekanie w części sekwencyjnej.
+"""
+
+
+# ╔═╡ f7eda722-9660-42ac-89ec-dfc3d9933821
+begin
+	plot(ylabel="Przyśpieszenie względne", xlabel="ilość węzłów", xticks=0:1:12, legend = :topleft)
+	plot_speedup!(pi_s1; label="π s1")
+	plot_speedup!(pi_s2; label="π s2")
+	plot_speedup!(pi_s3; label="π s3")
+	plot_speedup!(pi_s4; label="π s4")
+	plot_speedup!(pi_s5; label="π s5")
+	plot!(x -> x, 1:12, label="")
+end
+
+
+# ╔═╡ b9a46140-5ed7-4c3f-9f1f-900724f35a37
+md"""
+##### Efektywność
+
+Efektywność utrzymuje się pomiędzy 0.8 - 1.0, co wydaje się być rozsądnym zakresem. Idealną wartością 
+dla efektywności byłaby wartość 1.
+Wydaje się, że mniejsze liczby punktów osiągały lepszą efektywność. To przypuszczalnie dlatego, że różnice
+w czasie wykonania programu na różnych węzłach są bardziej widoczne im ten program się dłużej wykonuje, a to w efekcie zwiększa
+sekwencyjną część czekania na wyniki. 
+"""
+
+# ╔═╡ 737a4839-a22d-4293-9642-4c0592f59403
+begin
+	plot(ylabel="efektywność", xlabel="ilość węzłów", xticks=0:1:12)
+	plot_efficiency!(pi_s1; label="π s1")
+	plot_efficiency!(pi_s2; label="π s2")
+
+	plot!(x -> 1, 1:12, label="")
+end
+
+# ╔═╡ b9328834-2d84-4e02-bb07-8dc9b1c7e01b
+begin
+	plot(ylabel="efektywność", xlabel="ilość węzłów", xticks=0:1:12)
+	plot_efficiency!(pi_s3; label="π s3")
+	plot_efficiency!(pi_s4; label="π s4")
+	plot_efficiency!(pi_s5; label="π s5")
+	plot!(x -> 1, 1:12, label="")
+end
+
+# ╔═╡ 21121a41-ff78-4a50-aa26-d57d28c6860a
+md"""
+##### Część Sekwencyjna
+
+Wykresy pokazują niezerową część sekwencyjną, która idealnie byłaby zerowa.
+Dla naszego problemu ma ona bardzo niską wartość.
+"""
+
+
+# ╔═╡ b983255e-4174-4ff3-84f9-62c29f638364
+begin
+	plot(xlabel="ilość węzłów", ylabel="serial fraction", xticks=0:1:12)
+	plot_sf!(pi_s1; label="π s1")
+	plot_sf!(pi_s2; label="π s2")
+	plot!(x -> 0, 1:12, label="")
+end
+
+
+# ╔═╡ f126d7c8-3aee-44cf-8bbf-373521315fae
+begin
+	plot(xlabel="ilość węzłów", ylabel="serial fraction", xticks=0:1:12)
+	plot_sf!(pi_s3; label="π s3")
+	plot_sf!(pi_s4; label="π s4")
+	plot_sf!(pi_s5; label="π s5")
+	plot!(x -> 0, 1:12, label="")
+end
 
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
@@ -1314,19 +1600,38 @@ version = "0.9.1+5"
 """
 
 # ╔═╡ Cell order:
-# ╠═ed491677-bca1-4c08-a568-b062b1ee266d
-# ╠═77326d30-e595-4d99-8a08-c5752e8e10cc
-# ╠═2f94ff6a-8102-4baf-a253-9d455e3f215e
-# ╠═f594eba6-70a8-4167-a910-6ffc8a872a13
-# ╠═aecadb90-bf2c-4011-a70a-d27e38125bb6
-# ╠═6e8d59e4-661f-4b13-a983-c10e2acb07d9
-# ╠═806718ac-7efb-4083-8cea-989c730b5765
-# ╠═d7515cd9-fbbd-4f82-85f7-a3ad8b93aa38
-# ╠═fc31e18d-2524-45b4-be45-2b9deaee4f76
-# ╠═d24291cb-1b70-4355-af18-29addca95cb0
-# ╠═a019c345-f912-42b0-b03f-cc9201d6c3be
-# ╠═803d33bc-0320-4c67-9573-c7b98a869a2a
-# ╠═419114e5-54a1-4ba6-8914-0327229711ee
-# ╠═4acc184e-8fa2-4238-b521-98a0a7caa7b9
+# ╟─ed491677-bca1-4c08-a568-b062b1ee266d
+# ╟─77326d30-e595-4d99-8a08-c5752e8e10cc
+# ╟─2f94ff6a-8102-4baf-a253-9d455e3f215e
+# ╟─f594eba6-70a8-4167-a910-6ffc8a872a13
+# ╟─aecadb90-bf2c-4011-a70a-d27e38125bb6
+# ╟─6e8d59e4-661f-4b13-a983-c10e2acb07d9
+# ╟─806718ac-7efb-4083-8cea-989c730b5765
+# ╟─74bcdc04-ba8e-4bc9-bc44-29008045005f
+# ╟─86bc5974-d0ff-4d86-bce7-0d87114529a4
+# ╟─ed774b67-b8ca-4215-b03f-542ff83df9f7
+# ╟─d7515cd9-fbbd-4f82-85f7-a3ad8b93aa38
+# ╟─fc31e18d-2524-45b4-be45-2b9deaee4f76
+# ╟─f0f03907-6aba-433b-9878-60bbc6c7f62e
+# ╟─803d33bc-0320-4c67-9573-c7b98a869a2a
+# ╟─419114e5-54a1-4ba6-8914-0327229711ee
+# ╟─a0c5dc3f-be3d-4a3e-a3ae-4eea77f8dfc5
+# ╟─faa0408d-f418-413f-8480-b63ffbdb4a9d
+# ╟─a7a4a356-2493-4f99-9652-6b9e9e4b0af2
+# ╟─c3780def-41ca-4648-ad73-034f3f782dc3
+# ╟─8953fb85-6e35-4f2f-8018-0e37f393b1f4
+# ╟─8bf38410-d62a-44ae-8683-08e327f9b1e7
+# ╟─0a97c46b-3d85-4737-a702-4c4e076ff81d
+# ╟─9433a028-f000-48af-a5d1-b7672d2cf936
+# ╟─5db2f023-f4ed-47cc-98e5-edadac859907
+# ╟─801fbbda-2064-4ab0-948b-487ace41781f
+# ╟─ce0e8a8e-3fca-49dc-8103-09b6805d6f16
+# ╟─f7eda722-9660-42ac-89ec-dfc3d9933821
+# ╟─b9a46140-5ed7-4c3f-9f1f-900724f35a37
+# ╟─737a4839-a22d-4293-9642-4c0592f59403
+# ╟─b9328834-2d84-4e02-bb07-8dc9b1c7e01b
+# ╟─21121a41-ff78-4a50-aa26-d57d28c6860a
+# ╟─b983255e-4174-4ff3-84f9-62c29f638364
+# ╟─f126d7c8-3aee-44cf-8bbf-373521315fae
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
