@@ -20,6 +20,7 @@ begin
 	using StatsPlots
 	using Measurements
 	using Statistics
+	using BrowseTables
 end
 
 # ╔═╡ aecadb90-bf2c-4011-a70a-d27e38125bb6
@@ -52,7 +53,7 @@ md"""
 ## Metody programowania równoległego
 Patryk Wojtyczek
 
-Kod programów jak i skrypty do uruchomiania programów zamieściłem w zipie.
+Kod programów jak i skrypty do uruchomiania programów zamieściłem w sprawozdaniu. Dane znajdują się na końcu.
 
 #### Część 1 - Komunikacja P2P
 Programy do pomiaru przepustowości zostały napisane w języku `c` i 
@@ -85,6 +86,440 @@ Zmierzyłem wiadomości w zakresie 1B-10MB, przy czym większość zmierzonych
 rozmiarów (około 300) mieści się poniżej 250kB, pozostałych jest około 100.
 Dla każdej wielkości wiadomości powtórzyłem pomiar trzykrotnie.
 """
+
+# ╔═╡ b75e6d97-432d-4418-82f8-c7e25106c120
+md"""
+##### Kod Źródłowy i Skrypty
+- ibsend.c
+```c
+#include <mpi.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef DEBUG
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+#else
+#define DEBUG_PRINTF(...)                                                      \
+  do {                                                                         \
+  } while (0)
+#endif
+
+#define INFO_PRINTF(...)                                                       \
+  do {                                                                         \
+    printf("INFO: "__VA_ARGS__);                                               \
+    puts("");                                                                  \
+  } while (0)
+
+int message_id(int round_id, bool ping_message) {
+  return round_id * 2 + ping_message;
+}
+
+char* allocate_n_bytes(int n_bytes) { return malloc(sizeof(char) * n_bytes); }
+
+int compute_transferred_data_single_round_bytes(int message_size) {
+  return 2 * message_size;
+}
+
+long int compute_rounds_count(long int n_bytes_to_transer, int message_size) {
+  return n_bytes_to_transer /
+         compute_transferred_data_single_round_bytes(message_size);
+}
+
+double compute_throughput_mbit_s(long int ping_pong_rounds, int message_size,
+                                 double measured_time) {
+  long int transfered_data_bytes =
+      compute_transferred_data_single_round_bytes(message_size) *
+      ping_pong_rounds;
+  return ((transfered_data_bytes * 8) / 1e6) / measured_time;
+}
+
+int main(int argc, char* argv[]) {
+  // mpi related
+  MPI_Init(&argc, &argv);
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  // args,
+  // - message_size in bytes
+  // - data to be transferred in bytes
+  // - output_file with measurements.
+  int partner_rank = (world_rank + 1) % 2;
+  int message_size_bytes = strtol(argv[1], NULL, 10);
+  long int bytes_to_transfer = strtol(argv[2], NULL, 10);
+
+  long int ping_pong_rounds =
+      compute_rounds_count(bytes_to_transfer, message_size_bytes);
+
+  char* data_file = argv[3];
+  FILE* datafile_fp = fopen(data_file, "a+");
+
+  // allocate buffer
+  int buffer_attached_size =  sizeof(char) * message_size_bytes + MPI_BSEND_OVERHEAD;
+  char* buffer_attached = allocate_n_bytes(buffer_attached_size);
+  MPI_Buffer_attach(buffer_attached, buffer_attached_size);
+
+  // master
+  // send ping, receive pong
+  if (world_rank == 0) {
+    INFO_PRINTF(
+        "Bytes to transfer: %ld, ping_pong_rounds: %ld, message_size: %d",
+        bytes_to_transfer, ping_pong_rounds, message_size_bytes);
+    int ping_buffer_size = message_size_bytes;
+    char* ping_message = allocate_n_bytes(message_size_bytes);
+    int pong_buffer_size = message_size_bytes;
+    char* pong_buffer = allocate_n_bytes(message_size_bytes);
+
+    // synchronization
+    MPI_Barrier(MPI_COMM_WORLD);
+    double start_wtime = MPI_Wtime();
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
+      MPI_Request request;
+      ping_message[round_id % message_size_bytes] = (char) rand();
+      MPI_Ibsend(ping_message, ping_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, true), MPI_COMM_WORLD, &request);
+      DEBUG_PRINTF("Round: %ld, sent: %s\n", round_id, ping_message);
+
+      MPI_Recv(pong_buffer, pong_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, false), MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      DEBUG_PRINTF("Round: %ld, received: %s\n", round_id, pong_buffer);
+
+      // Let's wait for the MPI_Ibsend to complete before progressing further.
+      // Should reutrn immediatly in our case since message must've been sent at this point.
+      MPI_Wait(&request, MPI_STATUS_IGNORE);
+      // Detach the buffer. It blocks until all messages stored are sent.
+      MPI_Buffer_detach(&buffer_attached, &buffer_attached_size);
+      // reattach the buffer.
+      MPI_Buffer_attach(buffer_attached, buffer_attached_size);
+    }
+
+    double end_wtime = MPI_Wtime();
+    double measured_time = end_wtime - start_wtime;
+
+    double throughput = compute_throughput_mbit_s(
+        ping_pong_rounds, message_size_bytes, measured_time);
+    INFO_PRINTF("Measured_time: %.6fs, Throughput: %.6f[Mbit/s]", measured_time,
+                throughput);
+    fprintf(datafile_fp, "%d %.6f\n", message_size_bytes, throughput);
+
+    // slave
+    // receive ping, send back pong
+  } else {
+    int pong_buffer_size = message_size_bytes;
+    char* pong_message = allocate_n_bytes(message_size_bytes);
+    int ping_buffer_size = message_size_bytes;
+    char* ping_buffer = allocate_n_bytes(message_size_bytes);
+
+    // synchronization
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Request request;
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
+      if (round_id != 0) {
+        // Let's wait for the MPI_Ibsend to complete before progressing further.
+        // Should reutrn immediatly in our case since message must've been sent at this point.
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
+        // Detach the buffer. It blocks until all messages stored are sent.
+        MPI_Buffer_detach(&buffer_attached, &buffer_attached_size);
+        // reattach the buffer.
+        MPI_Buffer_attach(buffer_attached, buffer_attached_size);
+      }
+      MPI_Recv(ping_buffer, ping_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, true), MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      DEBUG_PRINTF("Round: %ld, received: %s\n", round_id, ping_buffer);
+
+      pong_message[round_id % message_size_bytes] = ping_buffer[round_id % message_size_bytes];
+      DEBUG_PRINTF("%c", pong_message[round_id % message_size_bytes]);
+      MPI_Ibsend(pong_message, pong_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, false), MPI_COMM_WORLD, &request);
+      DEBUG_PRINTF("Round: %ld, sent: %s\n", round_id, pong_message);
+    }
+  }
+
+  MPI_Finalize();
+  return 0;
+}
+```
+
+- ssend.c
+```c
+#include <mpi.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef DEBUG
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+#else
+#define DEBUG_PRINTF(...)                                                      \
+  do {                                                                         \
+  } while (0)
+#endif
+
+#define INFO_PRINTF(...)                                                       \
+  do {                                                                         \
+    printf("INFO: "__VA_ARGS__);                                               \
+    puts("");                                                                  \
+  } while (0)
+
+int message_id(int round_id, bool ping_message) {
+  return round_id * 2 + ping_message;
+}
+
+char* allocate_n_bytes(int n_bytes) { return malloc(sizeof(char) * n_bytes); }
+
+int compute_transferred_data_single_round_bytes(int message_size) {
+  return 2 * message_size;
+}
+
+long int compute_rounds_count(long int n_bytes_to_transer, int message_size) {
+  return n_bytes_to_transer /
+         compute_transferred_data_single_round_bytes(message_size);
+}
+
+double compute_throughput_mbit_s(long int ping_pong_rounds, int message_size,
+                                 double measured_time) {
+  long int transfered_data_bytes =
+      compute_transferred_data_single_round_bytes(message_size) *
+      ping_pong_rounds;
+  return ((transfered_data_bytes * 8) / 1e6) / measured_time;
+}
+
+int main(int argc, char* argv[]) {
+  // mpi related
+  MPI_Init(&argc, &argv);
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  // args,
+  // - message_size in bytes
+  // - data to be transferred in bytes
+  // - output_file with measurements.
+  int partner_rank = (world_rank + 1) % 2;
+  int message_size_bytes = strtol(argv[1], NULL, 10);
+  long int bytes_to_transfer = strtol(argv[2], NULL, 10);
+
+  long int ping_pong_rounds =
+      compute_rounds_count(bytes_to_transfer, message_size_bytes);
+
+  char* data_file = argv[3];
+  FILE* datafile_fp = fopen(data_file, "a+");
+
+  // master
+  // send ping, receive pong
+  if (world_rank == 0) {
+    INFO_PRINTF(
+        "Bytes to transfer: %ld, ping_pong_rounds: %ld, message_size: %d",
+        bytes_to_transfer, ping_pong_rounds, message_size_bytes);
+    int ping_buffer_size = message_size_bytes;
+    char* ping_message = allocate_n_bytes(message_size_bytes);
+    int pong_buffer_size = message_size_bytes;
+    char* pong_buffer = allocate_n_bytes(message_size_bytes);
+
+    // synchronization
+    MPI_Barrier(MPI_COMM_WORLD);
+    double start_wtime = MPI_Wtime();
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
+      ping_message[round_id % message_size_bytes] = (char) rand();
+      MPI_Send(ping_message, ping_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, true), MPI_COMM_WORLD);
+      DEBUG_PRINTF("Round: %ld, sent: %s\n", round_id, ping_message);
+
+      MPI_Recv(pong_buffer, pong_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, false), MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      DEBUG_PRINTF("Round: %ld, received: %s\n", round_id, pong_buffer);
+    }
+
+    double end_wtime = MPI_Wtime();
+    double measured_time = end_wtime - start_wtime;
+
+    double throughput = compute_throughput_mbit_s(
+        ping_pong_rounds, message_size_bytes, measured_time);
+    INFO_PRINTF("Measured_time: %.6fs, Throughput: %.6f[Mbit/s]", measured_time,
+                throughput);
+    fprintf(datafile_fp, "%d %.6f\n", message_size_bytes, throughput);
+
+    // slave
+    // receive ping, send back pong
+  } else {
+    int pong_buffer_size = message_size_bytes;
+    char* pong_message = allocate_n_bytes(message_size_bytes);
+    int ping_buffer_size = message_size_bytes;
+    char* ping_buffer = allocate_n_bytes(message_size_bytes);
+
+    // synchronization
+    MPI_Barrier(MPI_COMM_WORLD);
+    long int round_id;
+    for (round_id = 0; round_id < ping_pong_rounds; round_id++) {
+      MPI_Recv(ping_buffer, ping_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, true), MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      DEBUG_PRINTF("Round: %ld, received: %s\n", round_id, ping_buffer);
+
+      pong_message[round_id % message_size_bytes] = ping_buffer[round_id % message_size_bytes];
+      DEBUG_PRINTF("%c", pong_message[round_id % message_size_bytes]);
+      MPI_Send(pong_message, pong_buffer_size, MPI_CHAR, partner_rank,
+               message_id(round_id, false), MPI_COMM_WORLD);
+      DEBUG_PRINTF("Round: %ld, sent: %s\n", round_id, pong_message);
+    }
+  }
+
+  MPI_Finalize();
+  return 0;
+}
+```
+
+Skrypty do uruchamiania:
+- `run.sh`
+```sh
+#!/bin/bash 
+
+export VNODE_CLUSTER_SINGLE_NODE=true
+make ssend-multiple-runs
+make ibsend-multiple-runs
+
+export VNODE_CLUSTER_SINGLE_NODE=false
+export VNODE_CLUSTER_TWO_NODES=true
+make ssend-multiple-runs
+make ibsend-multiple-runs
+```
+
+- makefile (nie był to najlepszy pomysł, dużo prościej byłoby po prostu użyć basha)
+```makefile
+CC = "mpicc"
+MPIEXEC = "mpiexec"
+NODE_SUFFIX = "single_node"
+IBSEND_PREFIX = "ibsend"
+SSEND_PREFIX = "ssend"
+MEASUREMENTS_DIR = "measurements"
+ifeq (${VNODE_CLUSTER_SINGLE_NODE}, true)
+	MPIEXEC = mpiexec -machinefile ./vcluster-config/single_node
+endif
+ifeq (${VNODE_CLUSTER_TWO_NODES}, true)
+	MPIEXEC = mpiexec -machinefile ./vcluster-config/two_nodes
+	NODE_SUFFIX = "two_nodes"
+endif
+
+TRIALS ?= 3
+DATA_FILE_ID ?= 0
+DATA_TO_BE_TRANFERRED_BYTES = 100000000 # 100 MB
+
+MESSAGE_STEP_SIZE_BYTES = 100000 # 100 kB
+MAX_MESSAGE_SIZE = 10000000 # 10 MB
+
+MESSAGE_STEP_SMALL_STEP_SIZE_BYTES = 1000 # 5kB
+SMALL_STEP_THRESHOLD_BYTES = 250000 # 250kb
+
+MESSAGE_STEP_VERY_SMALL_STEP_SIZE_BYTES = 100 # 100B
+VERY_SMALL_STEP_THRESHOLD_BYTES = 5000 # 5 kB
+# ~ 50 + 250 + 100 measurements.
+
+# ibsend
+ibsend-plot: 
+	./gnuplot/composite_stats.sh "./$(MEASUREMENTS_DIR)/$(IBSEND_PREFIX)_$(NODE_SUFFIX)-*.dat" > "./build/$(IBSEND_PREFIX)_$(NODE_SUFFIX)_composite.dat"
+	gnuplot -persistent gnuplot/$(IBSEND_PREFIX)_$(NODE_SUFFIX).gpi
+
+ibsend-multiple-runs:
+	for (( i=1; i<=${TRIALS}; i++ )) ; do \
+		$(MAKE) ibsend-run DATA_FILE_ID=$$i ; \
+	done
+
+ibsend-run: build/ibsend 
+	mkdir -p ./${MEASUREMENTS_DIR}
+	rm -f "${MEASUREMENTS_DIR}/ibsend-${DATA_FILE_ID}.dat"
+
+	message_size="1" ; while [[ $$message_size -le $(VERY_SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+		${MPIEXEC} -n 2 ./build/ibsend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${IBSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_VERY_SMALL_STEP_SIZE_BYTES))) ; \
+    done
+
+	message_size=$(VERY_SMALL_STEP_THRESHOLD_BYTES) ; while [[ $$message_size -le $(SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+		$(MPIEXEC) -n 2 ./build/ibsend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${IBSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_SMALL_STEP_SIZE_BYTES))) ; \
+    done
+
+	message_size=$(MESSAGE_STEP_SIZE_BYTES) ; while [[ $$message_size -le $(MAX_MESSAGE_SIZE) ]] ; do \
+		$(MPIEXEC) -n 2 ./build/ibsend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${IBSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_SIZE_BYTES))) ; \
+    done
+
+build/ibsend: src/ibsend.c build
+	$(CC) -o build/ibsend src/ibsend.c
+
+# ssend
+ssend-plot: 
+	./gnuplot/composite_stats.sh "./$(MEASUREMENTS_DIR)/$(SSEND_PREFIX)_$(NODE_SUFFIX)-*.dat" > "./build/$(SSEND_PREFIX)_$(NODE_SUFFIX)_composite.dat"
+	gnuplot -persistent gnuplot/$(SSEND_PREFIX)_$(NODE_SUFFIX).gpi
+
+ssend-multiple-runs:
+	for (( i=1; i<=${TRIALS}; i++ )) ; do \
+		$(MAKE) ssend-run DATA_FILE_ID=$$i ; \
+	done
+
+ssend-run: build/ssend 
+	mkdir -p ./${MEASUREMENTS_DIR}
+	rm -f "${MEASUREMENTS_DIR}/ssend-${DATA_FILE_ID}.dat"
+
+	message_size="1" ; while [[ $$message_size -le $(VERY_SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_VERY_SMALL_STEP_SIZE_BYTES))) ; \
+    done
+
+	message_size=$(VERY_SMALL_STEP_THRESHOLD_BYTES) ; while [[ $$message_size -le $(SMALL_STEP_THRESHOLD_BYTES) ]] ; do \
+		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_SMALL_STEP_SIZE_BYTES))) ; \
+    done
+
+	message_size=$(MESSAGE_STEP_SIZE_BYTES) ; while [[ $$message_size -le $(MAX_MESSAGE_SIZE) ]] ; do \
+		$(MPIEXEC) -n 2 ./build/ssend $$message_size ${DATA_TO_BE_TRANFERRED_BYTES} "${MEASUREMENTS_DIR}/${SSEND_PREFIX}_${NODE_SUFFIX}-${DATA_FILE_ID}.dat"; \
+        ((message_size = message_size + $(MESSAGE_STEP_SIZE_BYTES))) ; \
+    done
+
+build/ssend: src/ssend.c build
+	$(CC) -o build/ssend src/ssend.c
+
+# ping-pong
+run-ping-pong: build/ping_pong
+	$(MPIEXEC) -n 2 ./build/ping_pong 16
+
+ping-pong-measure-multiple-runs:
+	for (( i=1; i<=${TRIALS}; i++ )) ; do \
+		$(MAKE) ping-pong-measure DATA_FILE_ID=$$i ; \
+	done
+		
+ping-pong-measure: build/ping_pong 
+	rm -f "build/ping_pong-${DATA_FILE_ID}.dat"
+	for n in 1 64 256 1024 65536 1048576 ; do \
+		$(MPIEXEC) -n 2 ./build/ping_pong $$n "build/ping_pong-${DATA_FILE_ID}.dat"; \
+    done
+
+ping-pong-plot: 
+	./gnuplot/composite_stats.sh "./build/ping_pong-*.dat" > "./build/ping_pong_composite.dat"
+	gnuplot -persistent gnuplot/ping_pong.gpi
+
+build/ping_pong: src/ping_pong.c build
+	$(CC) -o build/ping_pong src/ping_pong.c
+
+build:
+	mkdir -p ./build
+
+clean:
+	rm -rf ./build/*
+
+```
+
+
+"""
+
+
+
 
 # ╔═╡ ed774b67-b8ca-4215-b03f-542ff83df9f7
 md"""
@@ -205,6 +640,185 @@ mi się je wykonać tylko raz i rozpocząć drugi pomiar.
 Większość wykresów jest podzielona na dwa ze względu na fakt, że wykresy wyglądają dość nieczytelnie 
 z pięcioma grupami.
 """
+
+# ╔═╡ c88f6105-1e02-48d6-8860-e9c37c96a4fa
+md"""
+##### Kod Źródłowy i Skrypty
+- pi.c
+
+```c
+#include <float.h>
+#include <math.h>
+#include <mpi.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#define TIME_SEED time(NULL)
+#ifndef DBL_DECIMAL_DIG        
+#define DBL_DECIMAL_DIG        17
+#endif
+
+long int compute_points_within(long long int n) {
+  long long int i, count;
+  double x, y, z;
+  count = 0;
+  for (i = 0; i < n; ++i) {
+    x = (double)rand() / RAND_MAX;
+    y = (double)rand() / RAND_MAX;
+    z = x * x + y * y;
+    if (z <= 1) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+/*
+    Useful mpi functions:
+        - Scatter - divides data (we have almost no data to scatter)
+        - Gather - gathers data to  (we don't need to gather ourselves)
+        - Reduce - sums all the data. (we need master which will hold the
+   reduced data)
+*/
+
+int main(int argc, char* argv[]) {
+  MPI_Init(&argc, &argv);
+
+  int rank, n_nodes, seed;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &n_nodes);
+  seed = TIME_SEED + rank * n_nodes;
+  srand(seed);
+
+  long long int n_points;
+  n_points = strtoll(argv[1], NULL, 10);
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  double start_time = MPI_Wtime();
+  long long int local_n_points = n_points / n_nodes;
+  long long int local_within = compute_points_within(local_n_points);
+  long long int total_within;
+  MPI_Reduce(&local_within, &total_within, 1, MPI_LONG_LONG_INT, MPI_SUM, 0,
+             MPI_COMM_WORLD);
+  if (rank == 0) {
+    double pi = (((double)total_within) / n_points) * 4;
+    double time = MPI_Wtime() - start_time;
+    printf("%d,%.*f,%.*f,%lld,%lld\n", n_nodes, DBL_DECIMAL_DIG, pi,
+           DBL_DECIMAL_DIG, time, n_points, total_within);
+  }
+
+  MPI_Finalize();
+  return 0;
+}
+```
+
+- makefile
+```makefile
+CC = "mpicc"
+MPIEXEC = "mpiexec"
+
+build/ping_pong: src/pi.c build
+	$(CC) -o build/pi src/pi.c
+
+build:
+	mkdir -p ./build
+
+clean:
+	rm -rf ./build/*
+```
+
+- run.sh
+```sh
+#!/bin/bash -l
+#SBATCH --nodes 1
+#SBATCH --ntasks 12
+#SBATCH --time=01:00:00
+#SBATCH --partition=plgrid-short
+#SBATCH --account=plgmpr22
+#SBATCH --sockets-per-node=2
+
+module add plgrid/tools/openmpi
+make
+
+for repeat in {1..20}; do
+	for points in {40000000,400000000,4000000000}; do
+		for nodes in {1..12}; do
+			mpiexec -np $nodes ./build/pi $points | tee -a data/data.csv
+		done
+	done
+done
+```
+
+- run-small.sh
+```sh
+#!/bin/bash -l
+#SBATCH --nodes 1
+#SBATCH --ntasks 12
+#SBATCH --time=01:00:00
+#SBATCH --partition=plgrid-short
+#SBATCH --account=plgmpr22
+#SBATCH --sockets-per-node=2
+
+module add plgrid/tools/openmpi
+make
+
+for repeat in {1..20}; do
+	for points in 20000000; do
+		for nodes in {1..12}; do
+			mpiexec -np $nodes ./build/pi $points | tee -a data/data.csv
+		done
+	done
+done
+```
+
+- run-med.sh
+```sh
+#!/bin/bash -l
+#SBATCH --nodes 1
+#SBATCH --ntasks 12
+#SBATCH --time=01:00:00
+#SBATCH --partition=plgrid-short
+#SBATCH --account=plgmpr22
+#SBATCH --sockets-per-node=2
+
+module add plgrid/tools/openmpi
+make
+
+for repeat in {1..20}; do
+	for points in 4000000000; do
+		for nodes in {1..12}; do
+			mpiexec -np $nodes ./build/pi $points | tee -a data/data.csv
+		done
+	done
+done
+```
+
+- run-big.sh
+```sh
+#!/bin/bash -l
+#SBATCH --nodes 1
+#SBATCH --ntasks 12
+#SBATCH --time=01:00:00
+#SBATCH --partition=plgrid-short
+#SBATCH --account=plgmpr22
+#SBATCH --sockets-per-node=2
+
+module add plgrid/tools/openmpi
+make
+
+for repeat in {1..20}; do
+	for points in 20000000000; do
+		for nodes in {1..12}; do
+			mpiexec -np $nodes ./build/pi $points | tee -a data/data.csv
+		done
+	done
+done
+```
+
+"""
+
 
 # ╔═╡ c3780def-41ca-4648-ad73-034f3f782dc3
 function lab2_measurements(csv_file)
@@ -371,9 +985,46 @@ begin
 end
 
 
+# ╔═╡ 1d6e7215-ccd0-4252-afc8-f48bfd43889d
+md"""md
+#### Dane
+
+"""
+
+# ╔═╡ 7c12ebe4-9ae5-42db-8f4c-5acf57a12b11
+begin 
+	ssend_single = CSV.read("lab1/measurements/csv/ssend_single_node.csv", DataFrame)
+	HTMLTable(ssend_single)
+end
+
+# ╔═╡ a87255d9-6585-4437-96f6-d0a29845eefb
+begin 
+	ssend_two = CSV.read("lab1/measurements/csv/ssend_two_nodes.csv", DataFrame)
+	HTMLTable(ssend_two)
+end
+
+# ╔═╡ 399ccc73-6eff-4476-a460-4aaab2203ef9
+begin 
+	ibsend_single = CSV.read("lab1/measurements/csv/ibsend_single_node.csv", DataFrame)
+	HTMLTable(ibsend_single)
+end
+
+# ╔═╡ 349b7ea0-2d04-49f8-a10f-309ccf20a4c2
+begin 
+	ibsend_two = CSV.read("lab1/measurements/csv/ibsend_two_nodes.csv", DataFrame)
+	HTMLTable(ibsend_two)
+end
+
+# ╔═╡ 0fc26550-ac42-4a2a-aafc-a22b92593649
+begin 
+	raw_data_pi =CSV.read("lab2/data/data.csv", DataFrame)
+	HTMLTable(raw_data_pi)
+end
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+BrowseTables = "5f4fecfd-7eb0-5078-b7f6-ad1f2563c22a"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -384,6 +1035,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [compat]
+BrowseTables = "~0.3.0"
 CSV = "~0.10.3"
 DataFrames = "~1.3.2"
 Measurements = "~2.7.1"
@@ -409,6 +1061,11 @@ deps = ["LinearAlgebra"]
 git-tree-sha1 = "af92965fb30777147966f58acb05da51c5616b5f"
 uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 version = "3.3.3"
+
+[[deps.ArgCheck]]
+git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
+version = "2.3.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -436,6 +1093,12 @@ version = "1.0.1"
 
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+
+[[deps.BrowseTables]]
+deps = ["ArgCheck", "DefaultApplication", "DocStringExtensions", "Parameters", "Tables"]
+git-tree-sha1 = "2df4c05941860fd6149c349422d584174044718a"
+uuid = "5f4fecfd-7eb0-5078-b7f6-ad1f2563c22a"
+version = "0.3.0"
 
 [[deps.Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -555,6 +1218,12 @@ version = "0.4.13"
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+
+[[deps.DefaultApplication]]
+deps = ["InteractiveUtils"]
+git-tree-sha1 = "fc2b7122761b22c87fec8bf2ea4dc4563d9f8c24"
+uuid = "3f0dd361-4fe0-5fc6-8523-80b14ec94d85"
+version = "1.0.0"
 
 [[deps.DelimitedFiles]]
 deps = ["Mmap"]
@@ -1070,6 +1739,12 @@ git-tree-sha1 = "e8185b83b9fc56eb6456200e873ce598ebc7f262"
 uuid = "90014a1f-27ba-587c-ab20-58faa44d9150"
 version = "0.11.7"
 
+[[deps.Parameters]]
+deps = ["OrderedCollections", "UnPack"]
+git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
+uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+version = "0.12.3"
+
 [[deps.Parsers]]
 deps = ["Dates"]
 git-tree-sha1 = "85b5da0fa43588c75bb1ff986493443f821c70b7"
@@ -1352,6 +2027,11 @@ version = "1.3.0"
 deps = ["Random", "SHA"]
 uuid = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
+[[deps.UnPack]]
+git-tree-sha1 = "387c1f73762231e86e0c9c5443ce3b4a0a9a0c2b"
+uuid = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
+version = "1.0.2"
+
 [[deps.Unicode]]
 uuid = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
@@ -1609,6 +2289,7 @@ version = "0.9.1+5"
 # ╟─806718ac-7efb-4083-8cea-989c730b5765
 # ╟─74bcdc04-ba8e-4bc9-bc44-29008045005f
 # ╟─86bc5974-d0ff-4d86-bce7-0d87114529a4
+# ╟─b75e6d97-432d-4418-82f8-c7e25106c120
 # ╟─ed774b67-b8ca-4215-b03f-542ff83df9f7
 # ╟─d7515cd9-fbbd-4f82-85f7-a3ad8b93aa38
 # ╟─fc31e18d-2524-45b4-be45-2b9deaee4f76
@@ -1618,6 +2299,7 @@ version = "0.9.1+5"
 # ╟─a0c5dc3f-be3d-4a3e-a3ae-4eea77f8dfc5
 # ╟─faa0408d-f418-413f-8480-b63ffbdb4a9d
 # ╟─a7a4a356-2493-4f99-9652-6b9e9e4b0af2
+# ╟─c88f6105-1e02-48d6-8860-e9c37c96a4fa
 # ╟─c3780def-41ca-4648-ad73-034f3f782dc3
 # ╟─8953fb85-6e35-4f2f-8018-0e37f393b1f4
 # ╟─8bf38410-d62a-44ae-8683-08e327f9b1e7
@@ -1633,5 +2315,11 @@ version = "0.9.1+5"
 # ╟─21121a41-ff78-4a50-aa26-d57d28c6860a
 # ╟─b983255e-4174-4ff3-84f9-62c29f638364
 # ╟─f126d7c8-3aee-44cf-8bbf-373521315fae
+# ╟─1d6e7215-ccd0-4252-afc8-f48bfd43889d
+# ╠═7c12ebe4-9ae5-42db-8f4c-5acf57a12b11
+# ╠═a87255d9-6585-4437-96f6-d0a29845eefb
+# ╠═399ccc73-6eff-4476-a460-4aaab2203ef9
+# ╠═349b7ea0-2d04-49f8-a10f-309ccf20a4c2
+# ╠═0fc26550-ac42-4a2a-aafc-a22b92593649
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
