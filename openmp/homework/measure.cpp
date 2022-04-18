@@ -12,12 +12,13 @@
 #define SCHEDULE schedule(static)
 #endif
 
-int threads = 1, size = 1e6, repeat = 1;
+int param_threads = 1,
+    param_size = 1e6,
+    param_repeat = 1;
 
 template<int min=0, int max=1>
 void uniform_fill(std::vector<double>& array) {
-  int size = array.size();
-  #pragma omp parallel num_threads(threads)
+  #pragma omp parallel num_threads(param_threads)
   {
     std::uniform_real_distribution<double> distribution(min, max);
     std::default_random_engine generator; 
@@ -25,7 +26,7 @@ void uniform_fill(std::vector<double>& array) {
     generator.seed(t_thread * time(NULL) + 17);
     
     #pragma omp for SCHEDULE
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < array.size(); i++) {
       array[i] = distribution(generator);
     }
   }
@@ -57,15 +58,15 @@ void sequential_sort(std::vector<double>& array, int no_buckets) {
 // vectors of buckets
 // each thread has its own buckets
 // each thread iterates over entire array.
-// each threads sorts its own buckets//
+// each param_threads sorts its own buckets//
 
-// at the end all threads must join
+// at the end all param_threads must join
 // and each thread in parallel wrties the result.
 template<int max=1>
 void bucket_sort(std::vector<double>& array, int no_buckets) {
   std::vector<std::vector<double>> buckets(no_buckets);
 
-  double buckets_per_thread = no_buckets / threads;
+  double buckets_per_thread = no_buckets / param_threads;
 
   #pragma omp parallel shared(buckets) num_threads(threads)
   {
@@ -92,7 +93,7 @@ void bucket_sort(std::vector<double>& array, int no_buckets) {
   //   }
   // }
 
-//   #pragma omp parallel shared(thread_buckets) num_threads(threads)
+//   #pragma omp parallel shared(thread_buckets) num_threads(param_threads)
 //   {
 //     int thread_id = omp_get_thread_num();
 
@@ -124,13 +125,13 @@ void verify(std::vector<double>& supposedly_sorted, std::vector<double>& origina
 int main(int argc, char* argv[]) {
   argh::parser cmdl(argv);
 
-  cmdl({ "-t", "--threads"}) >> threads;
-  cmdl({ "-s", "--size" }) >> size;
-  cmdl({ "-r", "--repeat" }) >> repeat;
+  cmdl({ "-t", "--param_threads"}) >> param_threads;
+  cmdl({ "-s", "--size" }) >> param_size;
+  cmdl({ "-r", "--param_repeat" }) >> param_repeat;
 
-  std::vector<double> data(size);  
+  std::vector<double> data(param_size);
 
-  for (int i = 0; i < repeat; i++) {
+  for (int i = 0; i < param_repeat; i++) {
     double fill_time_0 = omp_get_wtime();
     uniform_fill(data);
     double fill_time = omp_get_wtime() - fill_time_0;
@@ -155,10 +156,10 @@ int main(int argc, char* argv[]) {
 // template<int min=0, int max=1>
 // std::vector<double>& bucket_sort(std::vector<double>& array, int no_buckets) {
 
-//   // create buckets shared accross threads.
-//   std::vector<std::vector<std::vector<double>>> thread_buckets(threads);
+//   // create buckets shared accross param_threads.
+//   std::vector<std::vector<std::vector<double>>> thread_buckets(param_threads);
 
-//   #pragma omp parallel shared(thread_buckets) num_threads(threads)
+//   #pragma omp parallel shared(thread_buckets) num_threads(param_threads)
 //   {
 //     int thread_id = omp_get_thread_num();
 

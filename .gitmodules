@@ -1,6 +1,9 @@
-[submodule "part-2/lab1/argh"]
-	path = part-2/lab1/argh
+[submodule "openmp/lab1/argh"]
+	path = openmp/lab1/argh
 	url = git@github.com:adishavit/argh.git
-[submodule "part-2/lab2/argh"]
-	path = part-2/lab2/argh
+[submodule "openmp/lab2/argh"]
+	path = openmp/lab2/argh
+	url = git@github.com:adishavit/argh.git
+[submodule "openmp/homework/argh"]
+	path = openmp/homework/argh
 	url = git@github.com:adishavit/argh.git
