@@ -55,7 +55,8 @@ void log<true>(const std::vector<std::vector<double>>& array) {
 
 int param_threads = 1,
 	param_size = 1e6,
-	param_repeat = 1;
+	param_repeat = 1,
+	param_algorithm_version = 1;
 
 template<int min = 0, int max = 1>
 void uniform_fill(std::vector<double>& array) {
@@ -187,28 +188,100 @@ void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, 
   }
 }
 
+template<int max = 1>
+void parallel_bucket_sort_2(std::vector<double>& array, int buckets_per_thread, Measurement& measurement) {
+  // allocate memory for buckets.
+  int no_buckets = param_threads * buckets_per_thread;
+  int estimated_bucket_size = std::max((int)array.size() / no_buckets, 1);
+  std::vector<std::vector<double>> buckets(no_buckets);
+  for (auto bucket : buckets) {
+	buckets.reserve(estimated_bucket_size);
+  }
+
+#pragma omp parallel shared(buckets) num_threads(param_threads)
+  {
+	int tid = omp_get_thread_num();
+
+	// we start by populating buckets
+	// each thread fills its own buckets.
+	double split_to_buckets_time = timeit([&] {
+	  for (int i = 0; i < array.size(); i++) {
+		int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
+
+		if (tid * buckets_per_thread <= bucket_index &&
+			bucket_index < (tid + 1) * buckets_per_thread) {
+		  buckets[bucket_index].push_back(array[i]);
+		}
+	  }
+	});
+
+	// now each thread sorts its share of buckets.
+	double sort_buckets_time = timeit([&] {
+#pragma omp for schedule(static)
+	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
+		std::sort(buckets[bucket_index].begin(), buckets[bucket_index].end());
+	  }
+	});
+
+	// after the buckets have been sorted
+	double write_sorted_buckets_time = timeit([&] {
+
+	  // we compute indices where to start writing in the original array.
+	  std::vector<int> bucket_idx_to_array_idx_table(no_buckets);
+	  for (int bucket_index = 1; bucket_index < no_buckets; bucket_index++) {
+		bucket_idx_to_array_idx_table[bucket_index] =
+			buckets[bucket_index - 1].size() + bucket_idx_to_array_idx_table[bucket_index - 1];
+	  }
+
+	  // finally, we can write the result.
+#pragma omp for schedule(static)
+	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
+		int start_idx = bucket_idx_to_array_idx_table[bucket_index];
+		for (int i = 0; i < buckets[bucket_index].size(); i++) {
+		  array[start_idx + i] = buckets[bucket_index][i];
+		}
+	  }
+	});
+
+	// update measurements at the end.
+	if (tid == 0) {
+	  measurement.split_to_buckets_time = split_to_buckets_time;
+	  measurement.sort_buckets_time = sort_buckets_time;
+	  measurement.write_sorted_buckets_time = write_sorted_buckets_time;
+	}
+  }
+}
+
+
 int main(int argc, char* argv[]) {
   argh::parser cmdl(argv);
 
   cmdl({"-t", "--threads"}) >> param_threads;
   cmdl({"-s", "--size"}) >> param_size;
   cmdl({"-r", "--repeat"}) >> param_repeat;
+  cmdl({"-v", "--version"}) >> param_algorithm_version;
 
   for (int i = 0; i < param_repeat; i++) {
 	std::vector<double> data(param_size);
 	Measurement measurement;
 
-	// 1. Generate data
+	// 1. generate data
 	measurement.rand_gen_time = timeit([&] {
 	  uniform_fill(data);
 	});
 	auto data_copy = data;
 
-	// 2. Sort
-	measurement.sort_time = timeit([&] {
-	  parallel_bucket_sort_1(data, 3, measurement);
-	});
+	// 2. sort
+	if (param_algorithm_version == 1) {
+	  measurement.sort_time = timeit([&] {
+		parallel_bucket_sort_1(data, 3, measurement);
+	  });
+	}
 
+	// 3. verify
+	verify(data, data_copy);
+
+	// 4. log results
 	log<INFO>("rand_gen_time: %lfs, "
 			  "split_to_buckets_time: %lfs, "
 			  "sort_buckets_time: %lfs, "
@@ -220,8 +293,5 @@ int main(int argc, char* argv[]) {
 			  measurement.sort_buckets_time,
 			  measurement.write_sorted_buckets_time,
 			  measurement.sort_time);
-
-	// 3. Verify
-	verify(data, data_copy);
   }
 }
