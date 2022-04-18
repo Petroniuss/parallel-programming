@@ -133,41 +133,56 @@ void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, 
 	buckets.reserve(estimated_bucket_size);
   }
 
-  // we start by populating buckets
-  // each thread fills its own buckets.
 #pragma omp parallel shared(buckets) num_threads(param_threads)
   {
 	int tid = omp_get_thread_num();
-	for (int i = 0; i < array.size(); i++) {
-	  int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
 
-	  if (tid * buckets_per_thread <= bucket_index &&
-		  bucket_index < (tid + 1) * buckets_per_thread) {
-		buckets[bucket_index].push_back(array[i]);
+	// we start by populating buckets
+	// each thread fills its own buckets.
+	double split_to_buckets_time = timeit([&] {
+	  for (int i = 0; i < array.size(); i++) {
+		int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
+
+		if (tid * buckets_per_thread <= bucket_index &&
+			bucket_index < (tid + 1) * buckets_per_thread) {
+		  buckets[bucket_index].push_back(array[i]);
+		}
 	  }
-	}
+	});
 
 	// now each thread sorts its share of buckets.
-#pragma omp for schedule(static)
-	for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
-	  std::sort(buckets[bucket_index].begin(), buckets[bucket_index].end());
-	}
+	double sort_buckets_time = timeit([&] {
+	  #pragma omp for schedule(static)
+	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
+		std::sort(buckets[bucket_index].begin(), buckets[bucket_index].end());
+	  }
+	});
 
 	// after the buckets have been sorted
-	// we compute indices where to start writing in the original array.
-	std::vector<int> bucket_idx_to_array_idx_table(no_buckets);
-	for (int bucket_index = 1; bucket_index < no_buckets; bucket_index++) {
-	  bucket_idx_to_array_idx_table[bucket_index] =
-		  buckets[bucket_index - 1].size() + bucket_idx_to_array_idx_table[bucket_index - 1];
-	}
+	double write_sorted_buckets_time = timeit([&] {
 
-	// finally, we can write the result.
-#pragma omp for schedule(static)
-	for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
-	  int start_idx = bucket_idx_to_array_idx_table[bucket_index];
-	  for (int i = 0; i < buckets[bucket_index].size(); i++) {
-		array[start_idx + i] = buckets[bucket_index][i];
+	  // we compute indices where to start writing in the original array.
+	  std::vector<int> bucket_idx_to_array_idx_table(no_buckets);
+	  for (int bucket_index = 1; bucket_index < no_buckets; bucket_index++) {
+		bucket_idx_to_array_idx_table[bucket_index] =
+			buckets[bucket_index - 1].size() + bucket_idx_to_array_idx_table[bucket_index - 1];
 	  }
+
+	  // finally, we can write the result.
+#pragma omp for schedule(static)
+	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
+		int start_idx = bucket_idx_to_array_idx_table[bucket_index];
+		for (int i = 0; i < buckets[bucket_index].size(); i++) {
+		  array[start_idx + i] = buckets[bucket_index][i];
+		}
+	  }
+	});
+
+	// update measurements at the end.
+	if (tid == 0) {
+	  measurement.split_to_buckets_time = split_to_buckets_time;
+	  measurement.sort_buckets_time = sort_buckets_time;
+	  measurement.write_sorted_buckets_time = write_sorted_buckets_time;
 	}
   }
 }
@@ -204,7 +219,7 @@ int main(int argc, char* argv[]) {
 			  measurement.split_to_buckets_time,
 			  measurement.sort_buckets_time,
 			  measurement.write_sorted_buckets_time,
-			  measurement.sort_time );
+			  measurement.sort_time);
 
 	// 3. Verify
 	verify(data, data_copy);

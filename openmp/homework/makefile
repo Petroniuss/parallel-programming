@@ -5,7 +5,7 @@ CC = gcc-11 -Wall
 all: build/measure
 
 run: build/measure
-	./build/measure --threads=2 --size=10 --repeat=1
+	./build/measure --threads=2 --size=1000 --repeat=1
 
 build/measure: measure.cpp build
 	g++-11 measure.cpp -o build/measure -fopenmp -std=c++11 
