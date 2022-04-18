@@ -6,51 +6,95 @@
 #include <iostream>
 #include "argh/argh.h"
 
-#define timeit(f) ({ double __time0 = omp_get_wtime(); f; omp_get_wtime() - __time0; })
-
 #ifndef SCHEDULE
 #define SCHEDULE schedule(static)
 #endif
 
-int param_threads = 1,
-    param_size = 1e6,
-    param_repeat = 1;
+#ifndef DEBUG
+#define DEBUG true
+#endif
 
-template<int min=0, int max=1>
+template<bool B>
+void log(const char* format, ...) {}
+
+template<>
+void log<true>(const char* format, ...) {
+  va_list argptr;
+  va_start(argptr, format);
+  vprintf(format, argptr);
+  va_end(argptr);
+}
+
+template<bool B>
+void log(const std::vector<double>& array) {}
+
+template<>
+void log<true>(const std::vector<double>& array) {
+  printf("[ ");
+  for (auto e : array) {
+	printf("%.2f ", e);
+  }
+  printf(" ]\n");
+}
+
+int param_threads = 1,
+	param_size = 1e6,
+	param_repeat = 1;
+
+template<int min = 0, int max = 1>
 void uniform_fill(std::vector<double>& array) {
-  #pragma omp parallel num_threads(param_threads)
+#pragma omp parallel num_threads(param_threads)
   {
-    std::uniform_real_distribution<double> distribution(min, max);
-    std::default_random_engine generator; 
-    int t_thread = omp_get_thread_num();
-    generator.seed(t_thread * time(NULL) + 17);
-    
-    #pragma omp for SCHEDULE
-    for (int i = 0; i < array.size(); i++) {
-      array[i] = distribution(generator);
-    }
+	std::uniform_real_distribution<double> distribution(min, max);
+	std::default_random_engine generator;
+	int t_thread = omp_get_thread_num();
+	int threads_num = omp_get_num_threads();
+	generator.seed(t_thread * time(NULL) + 17);
+
+#pragma omp for SCHEDULE
+	for (int i = 0; i < array.size(); i++) {
+	  array[i] = distribution(generator);
+	}
   }
 }
 
-template<int max=1>
+template<typename Function>
+double timeit(Function&& timed_function) {
+  double time_0 = omp_get_wtime();
+  timed_function();
+  return omp_get_wtime() - time_0;
+}
+
+void verify(const std::vector<double>& supposedly_sorted, const std::vector<double>& original) {
+  auto original_sorted = original;
+  std::sort(original_sorted.begin(), original_sorted.end());
+  bool are_equal = supposedly_sorted == original_sorted;
+  if (!are_equal) {
+	log<DEBUG>("Verification failed (top - expected, bottom - actual)\n");
+	log<DEBUG>(original_sorted);
+	log<DEBUG>(supposedly_sorted);
+  }
+}
+
+template<int max = 1>
 void sequential_sort(std::vector<double>& array, int no_buckets) {
   std::vector<std::vector<double>> buckets(no_buckets);
 
   for (int i = 0; i < array.size(); i++) {
-    int bucket_index = std::min((int) (no_buckets * array[i] / max), no_buckets - 1);
-    buckets[bucket_index].push_back(array[i]);
+	int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
+	buckets[bucket_index].push_back(array[i]);
   }
 
   for (int i = 0; i < buckets.size(); i++) {
-    sort(buckets[i].begin(), buckets[i].end());
+	sort(buckets[i].begin(), buckets[i].end());
   }
 
   int array_idx = 0;
   for (int i = 0; i < buckets.size(); i++) {
-    for (int j = 0; j < buckets[i].size(); j++) {
-      array[array_idx] = buckets[i][j];
-      array_idx++;
-    }
+	for (int j = 0; j < buckets[i].size(); j++) {
+	  array[array_idx] = buckets[i][j];
+	  array_idx++;
+	}
   }
 }
 
@@ -62,23 +106,23 @@ void sequential_sort(std::vector<double>& array, int no_buckets) {
 
 // at the end all param_threads must join
 // and each thread in parallel wrties the result.
-template<int max=1>
+template<int max = 1>
 void bucket_sort(std::vector<double>& array, int no_buckets) {
   std::vector<std::vector<double>> buckets(no_buckets);
 
   double buckets_per_thread = no_buckets / param_threads;
 
-  #pragma omp parallel shared(buckets) num_threads(threads)
+#pragma omp parallel shared(buckets) num_threads(param_threads)
   {
-    int tid = omp_get_thread_num();
-    for (int i = 0; i < array.size(); i++) {
-      int bucket_index = std::min((int) (no_buckets * array[i] / max), no_buckets - 1);
+	int tid = omp_get_thread_num();
+	for (int i = 0; i < array.size(); i++) {
+	  int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
 
-      // figure out which index is mine.
-      if ( (tid) * buckets_per_thread <= bucket_index && bucket_index <= (tid + 1) * buckets_per_thread) {
-        buckets[bucket_index].push_back(array[i]);
-      }
-    }
+	  // figure out which index is mine.
+	  if ((tid) * buckets_per_thread <= bucket_index && bucket_index <= (tid + 1) * buckets_per_thread) {
+		buckets[bucket_index].push_back(array[i]);
+	  }
+	}
   }
 
   // for (int i = 0; i < buckets.size(); i++) {
@@ -112,39 +156,33 @@ void bucket_sort(std::vector<double>& array, int no_buckets) {
 //     // }
 }
 
-void verify(std::vector<double>& supposedly_sorted, std::vector<double>& original) {
-  std::sort(original.begin(), original.end());
-
-  bool are_equal = supposedly_sorted == original;
-  // std::cout << "Verified: " << are_equal << std::endl;
-  // for (int i = 0; i < size; i++) {
-  //   printf("%f, %f\n", supposedly_sorted[i], original[i]);
-  // }
-}
 
 int main(int argc, char* argv[]) {
   argh::parser cmdl(argv);
 
-  cmdl({ "-t", "--param_threads"}) >> param_threads;
-  cmdl({ "-s", "--size" }) >> param_size;
-  cmdl({ "-r", "--param_repeat" }) >> param_repeat;
-
-  std::vector<double> data(param_size);
+  cmdl({"-t", "--threads"}) >> param_threads;
+  cmdl({"-s", "--size"}) >> param_size;
+  cmdl({"-r", "--repeat"}) >> param_repeat;
 
   for (int i = 0; i < param_repeat; i++) {
-    double fill_time_0 = omp_get_wtime();
-    uniform_fill(data);
-    double fill_time = omp_get_wtime() - fill_time_0;
-    std::vector<double> original = data;
-    // for (int i = 0; i < size; i++) {
-    //   printf("%f, %f\n", data[i], original[i]);
-    // }
-    double bucket_sort_1 = omp_get_wtime();
-    bucket_sort(data, 8);
-    double bucket_sort_time = omp_get_wtime() - bucket_sort_1;
-    verify(data, original);
-    printf("fill_time, bucket_time\n");
-    printf("%lf, %lf\n", fill_time, bucket_sort_time);
+	std::vector<double> data(param_size);
+
+	// 1. Generate data
+	double fill_time = timeit([&] {
+	  uniform_fill(data);
+	});
+	auto data_copy = data;
+	log<DEBUG>("fill_time: %lfs\n", fill_time);
+
+	// 2. Sort
+	double sort_time = timeit([&] {
+	  sequential_sort(data, 10);
+	});
+
+	log<DEBUG>("sort_time: %lfs\n", sort_time);
+
+	// 3. Verify
+	verify(data, data_copy);
   }
 }
 
@@ -179,7 +217,7 @@ int main(int argc, char* argv[]) {
 //   }
 
 
-  // we could create a lock per bucket.
+// we could create a lock per bucket.
 
 //   for (int i = 0; i < no_buckets; i++) {
 //     printf("%d\n", thread_buckets[i].size());
