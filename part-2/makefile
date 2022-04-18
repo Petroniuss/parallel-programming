@@ -1,4 +1,4 @@
-CC = gcc -Wall
+CC = gcc-11 -Wall
 
 .PHONY: clean run
 
