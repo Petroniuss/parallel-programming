@@ -73,8 +73,16 @@ void uniform_fill(std::vector<double>& array) {
   }
 }
 
+struct Measurement {
+  double rand_gen_time = 0.;
+  double split_to_buckets_time = 0.;
+  double sort_buckets_time = 0.;
+  double write_sorted_buckets_time = 0.;
+  double sort_time = 0.;
+};
+
 template<typename Function>
-double timeit(Function&& timed_function) {
+double inline timeit(Function&& timed_function) {
   double time_0 = omp_get_wtime();
   timed_function();
   return omp_get_wtime() - time_0;
@@ -116,11 +124,14 @@ void sequential_bucket_sort(std::vector<double>& array, int no_buckets) {
 // algorithm #1
 // - each thread has its own buckets
 template<int max = 1>
-void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread) {
+void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, Measurement& measurement) {
+  // allocate memory for buckets.
   int no_buckets = param_threads * buckets_per_thread;
   int estimated_bucket_size = std::max((int)array.size() / no_buckets, 1);
-  std::vector<std::vector<double>> buckets(no_buckets,
-										   std::vector<double>(estimated_bucket_size));
+  std::vector<std::vector<double>> buckets(no_buckets);
+  for (auto bucket : buckets) {
+	buckets.reserve(estimated_bucket_size);
+  }
 
   // we start by populating buckets
   // each thread fills its own buckets.
@@ -170,20 +181,30 @@ int main(int argc, char* argv[]) {
 
   for (int i = 0; i < param_repeat; i++) {
 	std::vector<double> data(param_size);
+	Measurement measurement;
 
 	// 1. Generate data
-	double fill_time = timeit([&] {
+	measurement.rand_gen_time = timeit([&] {
 	  uniform_fill(data);
 	});
 	auto data_copy = data;
-	log<INFO>("fill_time: %lfs\n", fill_time);
 
 	// 2. Sort
-	double sort_time = timeit([&] {
-	  parallel_bucket_sort_1(data, 3);
+	measurement.sort_time = timeit([&] {
+	  parallel_bucket_sort_1(data, 3, measurement);
 	});
 
-	log<INFO>("sort_time: %lfs\n", sort_time);
+	log<INFO>("rand_gen_time: %lfs, "
+			  "split_to_buckets_time: %lfs, "
+			  "sort_buckets_time: %lfs, "
+			  "write_sorted_buckets_time: %lfs, "
+			  "sort_time: %lfs"
+			  "\n",
+			  measurement.rand_gen_time,
+			  measurement.split_to_buckets_time,
+			  measurement.sort_buckets_time,
+			  measurement.write_sorted_buckets_time,
+			  measurement.sort_time );
 
 	// 3. Verify
 	verify(data, data_copy);
