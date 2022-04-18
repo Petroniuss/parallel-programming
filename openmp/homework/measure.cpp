@@ -6,6 +6,15 @@
 #include <iostream>
 #include "argh/argh.h"
 
+// ------ Program parameters ----------
+
+int param_threads = 1,
+	param_size = 1e6,
+	param_repeat = 1,
+	param_algorithm_version = 1;
+
+// ------ Logging utilities --------------------
+
 #ifndef SCHEDULE
 #define SCHEDULE schedule(static)
 #endif
@@ -53,26 +62,13 @@ void log<true>(const std::vector<std::vector<double>>& array) {
   printf(" ]\n");
 }
 
-int param_threads = 1,
-	param_size = 1e6,
-	param_repeat = 1,
-	param_algorithm_version = 1;
 
-template<int min = 0, int max = 1>
-void uniform_fill(std::vector<double>& array) {
-#pragma omp parallel num_threads(param_threads)
-  {
-	std::uniform_real_distribution<double> distribution(min, max);
-	std::default_random_engine generator;
-	int t_thread = omp_get_thread_num();
-	generator.seed(t_thread * time(NULL) + 17);
+// ------ Rest of utilities ----------
+// - measurements
+// - timing
+// - sequential bucket sort
+// - verification
 
-#pragma omp for SCHEDULE
-	for (int i = 0; i < array.size(); i++) {
-	  array[i] = distribution(generator);
-	}
-  }
-}
 
 struct Measurement {
   double rand_gen_time = 0.;
@@ -94,7 +90,7 @@ void verify(const std::vector<double>& supposedly_sorted, const std::vector<doub
   std::sort(original_sorted.begin(), original_sorted.end());
   bool are_equal = supposedly_sorted == original_sorted;
   if (!are_equal) {
-	log<INFO>("Verification failed (top - expected, bottom - actual)\n");
+	log<INFO>("Verification failed (top -> expected, bottom -> actual)\n");
 	log<DEBUG>(original_sorted);
 	log<DEBUG>(supposedly_sorted);
   }
@@ -122,6 +118,24 @@ void sequential_bucket_sort(std::vector<double>& array, int no_buckets) {
   }
 }
 
+// ------ Actual algorithms ----------
+
+template<int min = 0, int max = 1>
+void uniform_fill(std::vector<double>& array) {
+#pragma omp parallel num_threads(param_threads)
+  {
+	std::uniform_real_distribution<double> distribution(min, max);
+	std::default_random_engine generator;
+	int t_thread = omp_get_thread_num();
+	generator.seed(t_thread * time(NULL) + 17);
+
+#pragma omp for SCHEDULE
+	for (size_t i = 0; i < array.size(); i++) {
+	  array[i] = distribution(generator);
+	}
+  }
+}
+
 // algorithm #1
 // - each thread has its own buckets
 template<int max = 1>
@@ -131,17 +145,17 @@ void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, 
   int estimated_bucket_size = std::max((int)array.size() / no_buckets, 1);
   std::vector<std::vector<double>> buckets(no_buckets);
   for (auto bucket : buckets) {
-	buckets.reserve(estimated_bucket_size);
+	bucket.reserve(estimated_bucket_size);
   }
 
-#pragma omp parallel shared(buckets) num_threads(param_threads)
+#pragma omp parallel shared(buckets) firstprivate(no_buckets) num_threads(param_threads)
   {
 	int tid = omp_get_thread_num();
 
 	// we start by populating buckets
 	// each thread fills its own buckets.
 	double split_to_buckets_time = timeit([&] {
-	  for (int i = 0; i < array.size(); i++) {
+	  for (size_t i = 0; i < array.size(); i++) {
 		int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
 
 		if (tid * buckets_per_thread <= bucket_index &&
@@ -153,7 +167,7 @@ void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, 
 
 	// now each thread sorts its share of buckets.
 	double sort_buckets_time = timeit([&] {
-	  #pragma omp for schedule(static)
+#pragma omp for schedule(static)
 	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
 		std::sort(buckets[bucket_index].begin(), buckets[bucket_index].end());
 	  }
@@ -173,7 +187,7 @@ void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, 
 #pragma omp for schedule(static)
 	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
 		int start_idx = bucket_idx_to_array_idx_table[bucket_index];
-		for (int i = 0; i < buckets[bucket_index].size(); i++) {
+		for (size_t i = 0; i < buckets[bucket_index].size(); i++) {
 		  array[start_idx + i] = buckets[bucket_index][i];
 		}
 	  }
@@ -188,6 +202,11 @@ void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, 
   }
 }
 
+// algorithm #2
+// - buckets are shared between threads
+// Note, as an optimization, each thread creates
+// its own private buckets where it accumulates values from the array
+// and at the end flushes the results to shared buckets.
 template<int max = 1>
 void parallel_bucket_sort_2(std::vector<double>& array, int buckets_per_thread, Measurement& measurement) {
   // allocate memory for buckets.
@@ -195,24 +214,39 @@ void parallel_bucket_sort_2(std::vector<double>& array, int buckets_per_thread, 
   int estimated_bucket_size = std::max((int)array.size() / no_buckets, 1);
   std::vector<std::vector<double>> buckets(no_buckets);
   for (auto bucket : buckets) {
-	buckets.reserve(estimated_bucket_size);
+	bucket.reserve(estimated_bucket_size);
   }
 
-#pragma omp parallel shared(buckets) num_threads(param_threads)
+#pragma omp parallel shared(buckets) firstprivate(no_buckets, estimated_bucket_size) num_threads(param_threads)
   {
 	int tid = omp_get_thread_num();
 
-	// we start by populating buckets
-	// each thread fills its own buckets.
 	double split_to_buckets_time = timeit([&] {
-	  for (int i = 0; i < array.size(); i++) {
-		int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
+	  // in order to reduce thread contention
+	  // each thread has its own private buckets for accumulating the results.
+	  std::vector<std::vector<double>> private_buckets(no_buckets);
+	  for (auto bucket : private_buckets) {
+		bucket.reserve(estimated_bucket_size);
+	  }
 
-		if (tid * buckets_per_thread <= bucket_index &&
-			bucket_index < (tid + 1) * buckets_per_thread) {
-		  buckets[bucket_index].push_back(array[i]);
+#pragma omp for schedule(static) nowait
+	  for (size_t i = 0; i < array.size(); i++) {
+		int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
+		private_buckets[bucket_index].push_back(array[i]);
+	  }
+
+	  // at the end each thread enters critical section
+	  // where it flushes its results to shared buckets array.
+#pragma omp critical
+	  {
+		for (int bucket_idx = 0; bucket_idx < no_buckets; bucket_idx++) {
+		  for (auto v : private_buckets[bucket_idx]) {
+			buckets[bucket_idx].push_back(v);
+		  }
 		}
 	  }
+	  // we need to wait for all threads to finish updating buckets
+#pragma omp barrier
 	});
 
 	// now each thread sorts its share of buckets.
@@ -237,7 +271,7 @@ void parallel_bucket_sort_2(std::vector<double>& array, int buckets_per_thread, 
 #pragma omp for schedule(static)
 	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
 		int start_idx = bucket_idx_to_array_idx_table[bucket_index];
-		for (int i = 0; i < buckets[bucket_index].size(); i++) {
+		for (size_t i = 0; i < buckets[bucket_index].size(); i++) {
 		  array[start_idx + i] = buckets[bucket_index][i];
 		}
 	  }
@@ -252,8 +286,7 @@ void parallel_bucket_sort_2(std::vector<double>& array, int buckets_per_thread, 
   }
 }
 
-
-int main(int argc, char* argv[]) {
+int main(int, char* argv[]) {
   argh::parser cmdl(argv);
 
   cmdl({"-t", "--threads"}) >> param_threads;
@@ -271,17 +304,22 @@ int main(int argc, char* argv[]) {
 	});
 	auto data_copy = data;
 
-	// 2. sort
+	// 2. sort using chosen algorithm
 	if (param_algorithm_version == 1) {
 	  measurement.sort_time = timeit([&] {
 		parallel_bucket_sort_1(data, 3, measurement);
+	  });
+	} else if (param_algorithm_version == 2) {
+	  measurement.sort_time = timeit([&] {
+		parallel_bucket_sort_2(data, 3, measurement);
 	  });
 	}
 
 	// 3. verify
 	verify(data, data_copy);
 
-	// 4. log results
+	// 4. log results,
+	// todo this should be something we can pipe into csv file.
 	log<INFO>("rand_gen_time: %lfs, "
 			  "split_to_buckets_time: %lfs, "
 			  "sort_buckets_time: %lfs, "
