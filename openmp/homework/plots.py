@@ -19,7 +19,7 @@ def plot(variant, size):
 
     plot = df.set_index('Threads no').plot(style='.-')
     plot.set_ylabel('Time [s]')
-    plot.set_title(f'Execution time for variant=1 and SIZE={size}')
+    plot.set_title(f'Execution time for variant={variant} and SIZE={size}')
 
     plt.savefig(f'results/plot_{variant}_{size}.png')
 
