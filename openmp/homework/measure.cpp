@@ -320,12 +320,14 @@ int main(int, char* argv[]) {
 
 	// 4. log results,
 	// todo this should be something we can pipe into csv file.
-	log<INFO>("rand_gen_time: %lfs, "
-			  "split_to_buckets_time: %lfs, "
-			  "sort_buckets_time: %lfs, "
-			  "write_sorted_buckets_time: %lfs, "
-			  "sort_time: %lfs"
+	log<INFO>("%d,"
+			  "%lf,"
+			  "%lf,"
+			  "%lf,"
+			  "%lf,"
+			  "%lf"
 			  "\n",
+			  param_threads,
 			  measurement.rand_gen_time,
 			  measurement.split_to_buckets_time,
 			  measurement.sort_buckets_time,
