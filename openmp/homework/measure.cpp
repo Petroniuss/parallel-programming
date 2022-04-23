@@ -138,13 +138,51 @@ void uniform_fill(std::vector<double>& array) {
   }
 }
 
+
+// ------ Prefix sums ----------
+
+void synchronous_prefix_sum(std::vector<std::vector<double>>& buckets,
+							std::vector<int>& prefix_sum,
+							int no_buckets) {
+  for (int bucket_index = 1; bucket_index < no_buckets; bucket_index++) {
+	prefix_sum[bucket_index] =
+		buckets[bucket_index - 1].size() + prefix_sum[bucket_index - 1];
+  }
+}
+
+void parallel_prefix_sum(std::vector<std::vector<double>>& buckets,
+									 std::vector<int>& prefix_sum_z,
+									 std::vector<int>& prefix_sum,
+									 int no_buckets) {
+  int tid = omp_get_thread_num();
+  int sum = 0;
+#pragma omp for schedule(static)
+  for (int bucket_index = 1; bucket_index < no_buckets; bucket_index++) {
+	sum += buckets[bucket_index - 1].size();
+	prefix_sum[bucket_index] = sum;
+  }
+  prefix_sum_z[tid + 1] = sum;
+
+#pragma omp barrier
+  auto offset = 0;
+  for(int i = 0; i < (tid + 1); i++) {
+	offset += prefix_sum_z[i];
+  }
+
+#pragma omp for schedule(static)
+  for (int bucket_index = 1; bucket_index < no_buckets; bucket_index++) {
+	prefix_sum[bucket_index] += offset;
+  }
+}
+
+
 // algorithm #1
 // - each thread has its own buckets
 template<int max = 1>
 void parallel_bucket_sort_1(std::vector<double>& array, Measurement& measurement) {
   // allocate memory for buckets.
   int no_buckets = param_size / bucket_size;
-  int buckets_per_thread = no_buckets/param_threads;
+  int buckets_per_thread = no_buckets / param_threads;
   int estimated_bucket_size = std::max((int)array.size() / no_buckets, 1);
   std::vector<std::vector<double>> buckets(no_buckets);
   for (auto bucket : buckets) {
@@ -205,6 +243,10 @@ void parallel_bucket_sort_1(std::vector<double>& array, Measurement& measurement
   }
 }
 
+
+// todo finish alg#2 and alg#3
+// with parallel sum.
+
 // algorithm #2
 // - buckets are shared between threads
 // Note, as an optimization, each thread creates
@@ -219,6 +261,15 @@ void parallel_bucket_sort_2(std::vector<double>& array, Measurement& measurement
   for (auto bucket : buckets) {
 	bucket.reserve(estimated_bucket_size);
   }
+
+  // datastructures for computing prefix sum in parallel.
+  std::vector<int> prefix_sum_z(param_threads + 1);
+  prefix_sum_z.reserve(param_threads + 1);
+  prefix_sum_z.push_back(0);
+
+  std::vector<int> prefix_sum(no_buckets);
+  prefix_sum.reserve(no_buckets);
+
 
 #pragma omp parallel shared(buckets) firstprivate(no_buckets, estimated_bucket_size) num_threads(param_threads)
   {
@@ -264,16 +315,13 @@ void parallel_bucket_sort_2(std::vector<double>& array, Measurement& measurement
 	double write_sorted_buckets_time = timeit([&] {
 
 	  // we compute indices where to start writing in the original array.
-	  std::vector<int> bucket_idx_to_array_idx_table(no_buckets);
-	  for (int bucket_index = 1; bucket_index < no_buckets; bucket_index++) {
-		bucket_idx_to_array_idx_table[bucket_index] =
-			buckets[bucket_index - 1].size() + bucket_idx_to_array_idx_table[bucket_index - 1];
-	  }
+//	  synchronous_prefix_sum(buckets, prefix_sum, no_buckets);
+	  parallel_prefix_sum(buckets, prefix_sum_z, prefix_sum, no_buckets);
 
 	  // finally, we can write the result.
 #pragma omp for schedule(static)
 	  for (int bucket_index = 0; bucket_index < no_buckets; bucket_index++) {
-		int start_idx = bucket_idx_to_array_idx_table[bucket_index];
+		int start_idx = prefix_sum[bucket_index];
 		for (size_t i = 0; i < buckets[bucket_index].size(); i++) {
 		  array[start_idx + i] = buckets[bucket_index][i];
 		}
