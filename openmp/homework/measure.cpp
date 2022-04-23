@@ -11,7 +11,9 @@
 int param_threads = 1,
 	param_size = 1e6,
 	param_repeat = 1,
-	param_algorithm_version = 1;
+	param_algorithm_version = 1,
+	bucket_size = 1e6,
+	log_format = 1;
 
 // ------ Logging utilities --------------------
 
@@ -139,9 +141,10 @@ void uniform_fill(std::vector<double>& array) {
 // algorithm #1
 // - each thread has its own buckets
 template<int max = 1>
-void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, Measurement& measurement) {
+void parallel_bucket_sort_1(std::vector<double>& array, Measurement& measurement) {
   // allocate memory for buckets.
-  int no_buckets = param_threads * buckets_per_thread;
+  int no_buckets = param_size / bucket_size;
+  int buckets_per_thread = no_buckets/param_threads;
   int estimated_bucket_size = std::max((int)array.size() / no_buckets, 1);
   std::vector<std::vector<double>> buckets(no_buckets);
   for (auto bucket : buckets) {
@@ -208,9 +211,9 @@ void parallel_bucket_sort_1(std::vector<double>& array, int buckets_per_thread, 
 // its own private buckets where it accumulates values from the array
 // and at the end flushes the results to shared buckets.
 template<int max = 1>
-void parallel_bucket_sort_2(std::vector<double>& array, int buckets_per_thread, Measurement& measurement) {
+void parallel_bucket_sort_2(std::vector<double>& array, Measurement& measurement) {
   // allocate memory for buckets.
-  int no_buckets = param_threads * buckets_per_thread;
+  int no_buckets = param_size / bucket_size;
   int estimated_bucket_size = std::max((int)array.size() / no_buckets, 1);
   std::vector<std::vector<double>> buckets(no_buckets);
   for (auto bucket : buckets) {
@@ -286,6 +289,26 @@ void parallel_bucket_sort_2(std::vector<double>& array, int buckets_per_thread, 
   }
 }
 
+void log_results(Measurement measurement, int log_format) {
+	if (log_format == 1) {
+		log<INFO>("%d;"
+			  "%lf;"
+			  "%lf;"
+			  "%lf;"
+			  "%lf;"
+			  "%lf"
+			  "\n",
+			  bucket_size,
+			  measurement.rand_gen_time,
+			  measurement.split_to_buckets_time,
+			  measurement.sort_buckets_time,
+			  measurement.write_sorted_buckets_time,
+			  measurement.sort_time);
+	} else {
+		// Other formats
+	}
+}
+
 int main(int, char* argv[]) {
   argh::parser cmdl(argv);
 
@@ -293,6 +316,8 @@ int main(int, char* argv[]) {
   cmdl({"-s", "--size"}) >> param_size;
   cmdl({"-r", "--repeat"}) >> param_repeat;
   cmdl({"-v", "--version"}) >> param_algorithm_version;
+  cmdl({"-b", "--bucket-size"}) >> bucket_size;
+  cmdl({"-l", "--log-format"}) >> log_format;
 
   for (int i = 0; i < param_repeat; i++) {
 	std::vector<double> data(param_size);
@@ -307,11 +332,11 @@ int main(int, char* argv[]) {
 	// 2. sort using chosen algorithm
 	if (param_algorithm_version == 1) {
 	  measurement.sort_time = timeit([&] {
-		parallel_bucket_sort_1(data, 3, measurement);
+		parallel_bucket_sort_1(data, measurement);
 	  });
 	} else if (param_algorithm_version == 2) {
 	  measurement.sort_time = timeit([&] {
-		parallel_bucket_sort_2(data, 3, measurement);
+		parallel_bucket_sort_2(data, measurement);
 	  });
 	}
 
@@ -319,19 +344,6 @@ int main(int, char* argv[]) {
 	verify(data, data_copy);
 
 	// 4. log results,
-	// todo this should be something we can pipe into csv file.
-	log<INFO>("%d,"
-			  "%lf,"
-			  "%lf,"
-			  "%lf,"
-			  "%lf,"
-			  "%lf"
-			  "\n",
-			  param_threads,
-			  measurement.rand_gen_time,
-			  measurement.split_to_buckets_time,
-			  measurement.sort_buckets_time,
-			  measurement.write_sorted_buckets_time,
-			  measurement.sort_time);
+	log_results(measurement, log_format);
   }
 }
