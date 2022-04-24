@@ -12,7 +12,7 @@ int param_threads = 1,
 	param_size = 15000000,
 	param_repeat = 1,
 	param_algorithm_version = 3,
-	bucket_size = 20,
+	bucket_size = 50,
 	log_format = 1;
 
 bool sample_generator_flag = false;

@@ -94,9 +94,48 @@ end
 md"""
 ### Część 2
 
-zbadać zachowanie się algorytmu dla sort. sekwencyjnego (użyj tutaj sort. równol. dla jednego procesora) w zależności od liczby kubełków i wielkości danych wejściowych (czas wykonania sortowania w zależności od liczby kubełków, dla kilku wielkości danych wejściowych) - jak zachowują się poszczególne (dwa) algorytmy i jaki to ma wpływ na rząd złożoności algorytmów? Na podstawie tych badań wybierz parametry do dalszych badań. (osobno dla każdej implemenatcji)
+> zbadać zachowanie się algorytmu dla sort. sekwencyjnego (użyj tutaj sort. równol. dla jednego procesora) w zależności od liczby kubełków i wielkości danych wejściowych (czas wykonania sortowania w zależności od liczby kubełków, dla kilku wielkości danych wejściowych) - jak zachowują się poszczególne (dwa) algorytmy i jaki to ma wpływ na rząd złożoności algorytmów? Na podstawie tych badań wybierz parametry do dalszych badań. (osobno dla każdej implemenatcji)
 
-Zintegruj się z tym co zrobił Tomek.
+Tutaj można jeszcze poeksperymentować dane poniżej są dla $$10^5$$, powtarzane trzykrotnie z zaznaczonym odchyleniem standardowym.
+TODO!
+"""
+
+# ╔═╡ 7442d4c0-596e-4824-8fb5-48a768ebd97d
+begin 
+	measure(column_name) = column_name => (x -> measurement(mean(x), std(x))) => column_name
+
+    data = CSV.read("results/bucket_size/res_3.tsv", DataFrame; delim=";")
+    groupped = combine(groupby(data, [:bucket_size]), 
+		measure(:generating),
+		measure(:splitting),
+		measure(:sorting),
+		measure(:writing),
+		measure(:overall),
+		)
+end
+
+
+# ╔═╡ 1c876e95-a622-438c-b404-1fe0fdbb4719
+begin
+	plt_bucket_size(column, label) = 
+		@df groupped plot(:bucket_size, column, label=label, lw=6, marker=(:circle, .4))
+
+	plt_bucket_size!(column, label) = 
+		@df groupped plot!(:bucket_size, column, label=label, lw=6, marker=(:circle, .4))
+
+	@df groupped plt_bucket_size(:generating, "Generating data")
+	@df groupped plt_bucket_size!(:splitting, "Splitting to buckets")
+	@df groupped plt_bucket_size!(:sorting, "Sorting buckets")
+	@df groupped plt_bucket_size!(:writing, "Writing from sorted buckets")
+	@df groupped plt_bucket_size!(:overall, "Overall")
+
+	title!("Czas wykonania dla sekwencyjnego sortowania")
+	xlabel!("Rozmiar kubełka")
+	ylabel!("Czas [s]")
+end
+
+# ╔═╡ dac2ed31-5710-453c-97d5-619d310ee4bf
+md""" Część 3
 
 """
 
@@ -1321,6 +1360,9 @@ version = "0.9.1+5"
 # ╟─afc99004-ca7b-4e7b-8e0a-b93946bcb0c4
 # ╟─a549536f-b299-4e85-9b0a-e2022fe576d5
 # ╟─aa6f5104-7fb2-40b5-b5aa-f11dba9356df
-# ╠═9f13c2f8-848a-4e39-9099-6db3ef38c1d7
+# ╟─9f13c2f8-848a-4e39-9099-6db3ef38c1d7
+# ╠═7442d4c0-596e-4824-8fb5-48a768ebd97d
+# ╟─1c876e95-a622-438c-b404-1fe0fdbb4719
+# ╠═dac2ed31-5710-453c-97d5-619d310ee4bf
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

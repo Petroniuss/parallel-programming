@@ -4,7 +4,7 @@ make clean
 make all
 
 threads=1
-size=100000
+size=1000000
 
 function measure_alg() {
   version=$1
