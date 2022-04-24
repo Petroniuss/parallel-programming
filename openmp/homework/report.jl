@@ -96,8 +96,9 @@ md"""
 
 > zbadać zachowanie się algorytmu dla sort. sekwencyjnego (użyj tutaj sort. równol. dla jednego procesora) w zależności od liczby kubełków i wielkości danych wejściowych (czas wykonania sortowania w zależności od liczby kubełków, dla kilku wielkości danych wejściowych) - jak zachowują się poszczególne (dwa) algorytmy i jaki to ma wpływ na rząd złożoności algorytmów? Na podstawie tych badań wybierz parametry do dalszych badań. (osobno dla każdej implemenatcji)
 
-Tutaj można jeszcze poeksperymentować dane poniżej są dla $$10^5$$, powtarzane trzykrotnie z zaznaczonym odchyleniem standardowym.
-TODO!
+Do przetestowania jaki rozmiar kubełka dobrze się sprawdza, ustaliłem rozmiar problemu na $$10^6$$ i kilkukrotnie przetestowałem dla każdego rozmiaru od 1 do 100. 
+Program do testowania korzystał tylko z jednego rdzenia.
+Uzyskane wyniki zostały uśrednione i na wykresach zaznaczyłem odchylenie standardowe. Obliczenia wykonałem na moim prywatnym laptopie: MacBook Pro intel core i9 z 8 fizycznymi rdzeniami.
 """
 
 # ╔═╡ 7442d4c0-596e-4824-8fb5-48a768ebd97d
@@ -135,10 +136,106 @@ begin
 end
 
 # ╔═╡ dac2ed31-5710-453c-97d5-619d310ee4bf
-md""" Część 3
+md""" 
+Jako, że środowisko do testownia nie było do końca odizolowane to widzimy punkty w których odchylenie standardowe jest znacząco większe niż w innych (np. gdzies pomiędzy 25 a 50).
+Ogólny trend jest mimo wszystko widoczny. Wraz ze wzrostem rozmiaru kubełka czas sortowania kubełków rośnie a maleje czas podzielenia danych do kubełków. Jest tak dlatego, że zwiększając rozmiar kubełka 
+zwiększamy czas sorotowania pojedyńczego kubełka, a złożoność takiego sortowania wynosi $$O(bucket\_size \cdot log(bucket\_size))$$ i pomimo tego, że zmiejszamy ilość kubełków to odchodzimy od założenia, że
+ilość kubełków $$\approx n$$ przez co nasze sortowanie staje się coraz mniej liniowe. Zyskujemy natomiast na czasie podziału na kubełki ze względu, że jest ich po prostu mniej i każdy wątek może zaalokować mniej danych.
+
+Z wykresu widzimy, że warto mieć rozmiar kubełka ustawiony na więcej niż 25, nawet do 100 elementów. Zwiększając rozmiar kubełka znacząco bardziej nasze sortowanie stawałoby się coraz mniej liniowe.
+Do przyszyłych eksperymentów wybrałem rozmiar kubełka równy 50.
+"""
+
+
+# ╔═╡ 88b367de-ef33-4089-ae61-c7ca5ebd4bc7
+md"""
+### Część 3
+
+>Zbadać przyśpieszenie własnej implementacji z rozłożeniem na poszczególne części algorytmu (określone pomiary czasowe zdefiniowane w  ćwiczeniu_2; wykorzystaj wyniki z badania przyspieszenia generowania liczb losowych z ćwiczenia_1) dla różnych wielkości danych wejściowych, przy odpowiednim dobraniu wielkości kubełków (patrz poprzedni punkt); nie zapomnij o prawie Amdahla i prawie Gustafsona (wybierz tylko niektóre metryki). Które z części algorytmu łatwiej, a które trudniej było przyśpieszyć i dlaczego? (osobno dla każdej implemenatcji)
+
+
+Eksperymenty znowu wykonałem na moim laptopie.  Przy ośmiu wątkach widać zakłócenia ze względu na brak pełenej izolacji środowiska.
 
 """
 
+
+# ╔═╡ 97de3a11-a310-4935-9b0e-921168fd6edd
+begin 
+    alg_data = CSV.read("results/algorithm/res_3.tsv", DataFrame; delim=";")
+    alg_groupped = combine(groupby(alg_data, [:threads]), 
+		measure(:generating),
+		measure(:splitting),
+		measure(:sorting),
+		measure(:writing),
+		measure(:overall),
+		)
+end
+
+# ╔═╡ 92dbf116-5e34-4dad-950a-96e52b8aea85
+md"""
+#### Czas wykonania
+
+Na wykresie poniżej przedstawiono czas wykonania w zależności od ilości wątków. 
+Widzimy, że udaje się uzyskać przyspieszenie.
+
+"""
+
+
+# ╔═╡ e7e6f0fa-dfff-4cb0-8669-c406361c9888
+begin
+	function plot_time!(df, column::Symbol; kwargs...)
+		scatter!(df[:, :threads], df[:, column]; kwargs...)
+	end
+
+	plot(ylabel="Czas wykonania [s]", xlabel="threads", xticks=0:1:8, legend = :topright)
+
+	plot_time!(alg_groupped, :generating, label="Generating data")
+	plot_time!(alg_groupped, :splitting, label="Splitting to buckets")
+	plot_time!(alg_groupped, :sorting, label="Sorting buckets")
+	plot_time!(alg_groupped, :writing, label="Writing from sorted buckets")
+	plot_time!(alg_groupped, :overall, label="Overall")
+
+end
+
+# ╔═╡ f2720cfb-bcf2-467b-afaa-62a8b6435804
+md"""
+#### Speedup
+
+Na wykresie przedstawiono przyspieszenie. 
+Na niebiesko zaznaczyłem idealne przyspieszenie. Widzimy, że generowanie danych, sortowanie kubełków, przepisywanie z posortowanych kubełków 
+(zaimplementowałem tutaj równoległy prefix sum) doskonale się zrównolegla. 
+
+Natomiast to co nas trzyma to dzielenie danych do kubełków. W algorytmie trzecim każdy wątek ma wszystie kubełki ale tylko część danych. Później wątki 
+dzielą się kubełkami, żeby każdy miał własny przedział danych do wpisania do wspólnych kubełków, aby uniknąć konieczności synchronizacji.
+
+Problematyczne tutaj jest to, że wraz ze zwiększaniem ilości wątków każdy wątek dokłada kolejną listę kubełków. Jako, że algorytm wymaga 
+aby liczba kubełków $$≈ n$$ to możemy patrzeć na ten krok jako mnożenie sobie pracy przez ilość wątków. 
+Mimo tego, że wątki ładnie dzielą się danymi to dokładają sobie sporo pracy w momencie gdy trzeba te wszystkie dane zebrać i wpisać do wspólnych kubełków.
+Tak czy siak speedup udaje się uzyskać ale nie jest on tak spektakularny jak przy pozostałych etapach algorytmu.
+
+"""
+
+
+# ╔═╡ a223bec1-7543-49f5-a14f-7cb841ff5111
+begin
+	function plot_speedup!(df, column::Symbol; kwargs...)
+		T = df[1,column]
+		scatter!(df[:, :threads], T ./ df[:, column]; kwargs...)
+	end
+end
+
+# ╔═╡ b80af35d-2d59-4ef6-b5bb-6a625bd16f05
+begin
+	plot(ylabel="Speedup", xlabel="threads", xticks=0:1:8, legend = :topleft)
+
+	plot_speedup!(alg_groupped, :generating, label="Generating data")
+	plot_speedup!(alg_groupped, :splitting, label="Splitting to buckets")
+	plot_speedup!(alg_groupped, :sorting, label="Sorting buckets")
+	plot_speedup!(alg_groupped, :writing, label="Writing from sorted buckets")
+	plot_speedup!(alg_groupped, :overall, label="Overall")
+
+	plot!(x -> x, 1:8, label="")
+end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1361,8 +1458,15 @@ version = "0.9.1+5"
 # ╟─a549536f-b299-4e85-9b0a-e2022fe576d5
 # ╟─aa6f5104-7fb2-40b5-b5aa-f11dba9356df
 # ╟─9f13c2f8-848a-4e39-9099-6db3ef38c1d7
-# ╠═7442d4c0-596e-4824-8fb5-48a768ebd97d
+# ╟─7442d4c0-596e-4824-8fb5-48a768ebd97d
 # ╟─1c876e95-a622-438c-b404-1fe0fdbb4719
-# ╠═dac2ed31-5710-453c-97d5-619d310ee4bf
+# ╟─dac2ed31-5710-453c-97d5-619d310ee4bf
+# ╟─88b367de-ef33-4089-ae61-c7ca5ebd4bc7
+# ╟─97de3a11-a310-4935-9b0e-921168fd6edd
+# ╟─92dbf116-5e34-4dad-950a-96e52b8aea85
+# ╠═e7e6f0fa-dfff-4cb0-8669-c406361c9888
+# ╟─f2720cfb-bcf2-467b-afaa-62a8b6435804
+# ╟─a223bec1-7543-49f5-a14f-7cb841ff5111
+# ╟─b80af35d-2d59-4ef6-b5bb-6a625bd16f05
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
