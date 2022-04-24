@@ -154,7 +154,7 @@ md"""
 >Zbadać przyśpieszenie własnej implementacji z rozłożeniem na poszczególne części algorytmu (określone pomiary czasowe zdefiniowane w  ćwiczeniu_2; wykorzystaj wyniki z badania przyspieszenia generowania liczb losowych z ćwiczenia_1) dla różnych wielkości danych wejściowych, przy odpowiednim dobraniu wielkości kubełków (patrz poprzedni punkt); nie zapomnij o prawie Amdahla i prawie Gustafsona (wybierz tylko niektóre metryki). Które z części algorytmu łatwiej, a które trudniej było przyśpieszyć i dlaczego? (osobno dla każdej implemenatcji)
 
 
-Eksperymenty znowu wykonałem na moim laptopie.  Przy ośmiu wątkach widać zakłócenia ze względu na brak pełenej izolacji środowiska.
+Eksperymenty znowu wykonałem na moim laptopie. Przy ośmiu wątkach widać zakłócenia ze względu na brak pełenej izolacji środowiska.
 
 """
 
@@ -236,6 +236,46 @@ begin
 
 	plot!(x -> x, 1:8, label="")
 end
+
+# ╔═╡ 02ec2ad0-c9d4-460f-8555-496214208a36
+md"""
+#### Część sekwencyjna
+
+Inaczej Karp–Flatt metric.
+
+Tutaj widzimy podobną sytuację jak w metryce wyżej - część splitting to buckets nie chce przyspieszyć. 
+Co ciekawe tutaj jako część sekwnecyjną widzimy nie tyle coś co robi tylko jeden wątek i wszystkie inne czekają tylko
+fragment gdy wraz ze wzrostem ilości wątków rośnie nam ilość pracy i to jest pokazane w tej metryce jako część sekwencyjna.
+
+
+Prawo Amdahla mówi, że to co ogranicza nam speedup to właśnie część sekwencyjna i obserwujemy to na wykresie w speedup gdzie dodawanie 
+kolejnych wątków nie przynosi aż tak dużego przyspieszenia. 
+
+Prawo Amdahla nie bierze pod uwagę rozmiaru problemu co jest istotne bo w niektórych problemach część sekwencyjna zależy od rozmiaru problemu.
+Ale w przypadku naszego problemu część sekwencyjna będzie pozostawała na podobnym poziomie ze względu na fakt, że zwiększając n zwiększamy też liczbę kubełków
+a to tak naprawdę jest u nas częścią sekwencyjną w kroku dzielenia na kubełki.
+"""
+
+
+# ╔═╡ 135cd52a-d986-44ca-ab03-913c3e6e5d0a
+begin
+	function plot_sf!(df, column:: Symbol; kwargs...)
+		T = df[1, column]
+		S  = (T ./ df[:, column])[2:end]
+		p = df[:,:threads][2:end]
+		serial_fraction = (1 ./ S .- 1 ./ p) ./ (1 .- 1 ./ p)
+		scatter!(p, serial_fraction; kwargs...)
+	end
+	
+	plot(title="Część sekwencyjna", ylabel="Wartość", xlabel="threads", xticks=0:1:8)
+
+	plot_sf!(alg_groupped, :generating, label="Generating data")
+	plot_sf!(alg_groupped, :splitting, label="Splitting to buckets")
+	plot_sf!(alg_groupped, :sorting, label="Sorting buckets")
+	plot_sf!(alg_groupped, :writing, label="Writing from sorted buckets")
+	plot_sf!(alg_groupped, :overall, label="Overall")
+end
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1468,5 +1508,7 @@ version = "0.9.1+5"
 # ╟─f2720cfb-bcf2-467b-afaa-62a8b6435804
 # ╟─a223bec1-7543-49f5-a14f-7cb841ff5111
 # ╟─b80af35d-2d59-4ef6-b5bb-6a625bd16f05
+# ╟─02ec2ad0-c9d4-460f-8555-496214208a36
+# ╟─135cd52a-d986-44ca-ab03-913c3e6e5d0a
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
