@@ -92,7 +92,9 @@ end
 
 # ╔═╡ 9f13c2f8-848a-4e39-9099-6db3ef38c1d7
 md"""
-### Część 2 - zbadać zachowanie się algorytmu dla sort. sekwencyjnego (użyj tutaj sort. równol. dla jednego procesora) w zależności od liczby kubełków i wielkości danych wejściowych (czas wykonania sortowania w zależności od liczby kubełków, dla kilku wielkości danych wejściowych) - jak zachowują się poszczególne (dwa) algorytmy i jaki to ma wpływ na rząd złożoności algorytmów? Na podstawie tych badań wybierz parametry do dalszych badań. (osobno dla każdej implemenatcji)
+### Część 2
+
+zbadać zachowanie się algorytmu dla sort. sekwencyjnego (użyj tutaj sort. równol. dla jednego procesora) w zależności od liczby kubełków i wielkości danych wejściowych (czas wykonania sortowania w zależności od liczby kubełków, dla kilku wielkości danych wejściowych) - jak zachowują się poszczególne (dwa) algorytmy i jaki to ma wpływ na rząd złożoności algorytmów? Na podstawie tych badań wybierz parametry do dalszych badań. (osobno dla każdej implemenatcji)
 
 Zintegruj się z tym co zrobił Tomek.
 

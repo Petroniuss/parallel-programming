@@ -153,9 +153,9 @@ void synchronous_prefix_sum(std::vector<std::vector<double>>& buckets,
 }
 
 void parallel_prefix_sum(std::vector<std::vector<double>>& buckets,
-									 std::vector<int>& prefix_sum_z,
-									 std::vector<int>& prefix_sum,
-									 int no_buckets) {
+						 std::vector<int>& prefix_sum_z,
+						 std::vector<int>& prefix_sum,
+						 int no_buckets) {
   int tid = omp_get_thread_num();
   int sum = 0;
 #pragma omp for schedule(static)
@@ -167,7 +167,7 @@ void parallel_prefix_sum(std::vector<std::vector<double>>& buckets,
 
 #pragma omp barrier
   auto offset = 0;
-  for(int i = 0; i < (tid + 1); i++) {
+  for (int i = 0; i < (tid + 1); i++) {
 	offset += prefix_sum_z[i];
   }
 
@@ -176,7 +176,6 @@ void parallel_prefix_sum(std::vector<std::vector<double>>& buckets,
 	prefix_sum[bucket_index] += offset;
   }
 }
-
 
 // algorithm #1
 // - each thread has its own buckets
@@ -244,7 +243,6 @@ void parallel_bucket_sort_1(std::vector<double>& array, Measurement& measurement
 	}
   }
 }
-
 
 // algorithm #3
 // Each thread has its own private buckets
@@ -343,41 +341,41 @@ void log_generated_data(std::vector<double>& data) {
   log<INFO>("%lf\n", data[data.size() - 1]);
 }
 
-void log_results(Measurement measurement, int log_format) {
-	if (log_format == 1) {
-		log<INFO>(
-			  "%d;"
-			  "%d;"
-			  "%d;"
-			  "%lf;"
-			  "%lf;"
-			  "%lf;"
-			  "%lf;"
-			  "%lf"
-			  "\n",
-			  bucket_size,
-			  param_threads,
-			  param_algorithm_version,
-			  measurement.rand_gen_time,
-			  measurement.split_to_buckets_time,
-			  measurement.sort_buckets_time,
-			  measurement.write_sorted_buckets_time,
-			  measurement.sort_time);
-	} else {
-		// Other formats
-	}
+void log_results(Measurement measurement) {
+  if (log_format == 1) {
+	log<INFO>(
+		"%d;"
+		"%d;"
+		"%d;"
+		"%lf;"
+		"%lf;"
+		"%lf;"
+		"%lf;"
+		"%lf"
+		"\n",
+		bucket_size,
+		param_threads,
+		param_algorithm_version,
+		measurement.rand_gen_time,
+		measurement.split_to_buckets_time,
+		measurement.sort_buckets_time,
+		measurement.write_sorted_buckets_time,
+		measurement.sort_time);
+  } else {
+	// Other formats
+  }
 }
 
 int main(int, char* argv[]) {
   argh::parser cmdl(argv);
 
-  cmdl({"-t", "--threads"}, &param_threads) >> param_threads;
-  cmdl({"-s", "--size"}, &param_size) >> param_size;
-  cmdl({"-r", "--repeat"}, &param_repeat) >> param_repeat;
-  cmdl({"-v", "--version"}, &param_algorithm_version) >> param_algorithm_version;
-  cmdl({"-b", "--bucket-size"}, &bucket_size) >> bucket_size;
-  cmdl({"-l", "--log-format"}, &log_format) >> log_format;
-  cmdl({"-g", "--sample-generator"}, &sample_generator_flag);
+  cmdl({"-t", "--threads"}, param_threads) >> param_threads;
+  cmdl({"-s", "--size"}, param_size) >> param_size;
+  cmdl({"-r", "--repeat"}, param_repeat) >> param_repeat;
+  cmdl({"-v", "--version"}, param_algorithm_version) >> param_algorithm_version;
+  cmdl({"-b", "--bucket-size"}, bucket_size) >> bucket_size;
+  cmdl({"-l", "--log-format"}, log_format) >> log_format;
+  cmdl({"-g", "--sample-generator"}, sample_generator_flag) >> sample_generator_flag;
 
   if (sample_generator_flag) {
 	std::vector<double> data(param_size);
@@ -412,7 +410,7 @@ int main(int, char* argv[]) {
 	verify(data, data_copy);
 
 	// 4. log results,
-	log_results(measurement, log_format);
+	log_results(measurement);
   }
 
   return 0;
