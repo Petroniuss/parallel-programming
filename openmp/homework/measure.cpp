@@ -9,11 +9,13 @@
 // ------ Program parameters ----------
 
 int param_threads = 1,
-	param_size = 1e6,
+	param_size = 15000000,
 	param_repeat = 1,
-	param_algorithm_version = 1,
-	bucket_size = 1e6,
+	param_algorithm_version = 3,
+	bucket_size = 20,
 	log_format = 1;
+
+bool sample_generator_flag = false;
 
 // ------ Logging utilities --------------------
 
@@ -334,9 +336,19 @@ void parallel_bucket_sort_3(std::vector<double>& array, Measurement& measurement
   }
 }
 
+void log_generated_data(std::vector<double>& data) {
+  for (size_t i = 0; i < data.size() - 1; i++) {
+	log<INFO>("%lf; ", data[i]);
+  }
+  log<INFO>("%lf\n", data[data.size() - 1]);
+}
+
 void log_results(Measurement measurement, int log_format) {
 	if (log_format == 1) {
-		log<INFO>("%d;"
+		log<INFO>(
+			  "%d;"
+			  "%d;"
+			  "%d;"
 			  "%lf;"
 			  "%lf;"
 			  "%lf;"
@@ -344,6 +356,8 @@ void log_results(Measurement measurement, int log_format) {
 			  "%lf"
 			  "\n",
 			  bucket_size,
+			  param_threads,
+			  param_algorithm_version,
 			  measurement.rand_gen_time,
 			  measurement.split_to_buckets_time,
 			  measurement.sort_buckets_time,
@@ -357,12 +371,21 @@ void log_results(Measurement measurement, int log_format) {
 int main(int, char* argv[]) {
   argh::parser cmdl(argv);
 
-  cmdl({"-t", "--threads"}) >> param_threads;
-  cmdl({"-s", "--size"}) >> param_size;
-  cmdl({"-r", "--repeat"}) >> param_repeat;
-  cmdl({"-v", "--version"}) >> param_algorithm_version;
-  cmdl({"-b", "--bucket-size"}) >> bucket_size;
-  cmdl({"-l", "--log-format"}) >> log_format;
+  cmdl({"-t", "--threads"}, &param_threads) >> param_threads;
+  cmdl({"-s", "--size"}, &param_size) >> param_size;
+  cmdl({"-r", "--repeat"}, &param_repeat) >> param_repeat;
+  cmdl({"-v", "--version"}, &param_algorithm_version) >> param_algorithm_version;
+  cmdl({"-b", "--bucket-size"}, &bucket_size) >> bucket_size;
+  cmdl({"-l", "--log-format"}, &log_format) >> log_format;
+  cmdl({"-g", "--sample-generator"}, &sample_generator_flag);
+
+  if (sample_generator_flag) {
+	std::vector<double> data(param_size);
+	uniform_fill(data);
+	log_generated_data(data);
+
+	return 0;
+  }
 
   for (int i = 0; i < param_repeat; i++) {
 	std::vector<double> data(param_size);
@@ -391,4 +414,6 @@ int main(int, char* argv[]) {
 	// 4. log results,
 	log_results(measurement, log_format);
   }
+
+  return 0;
 }

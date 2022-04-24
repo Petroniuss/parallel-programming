@@ -1,10 +1,10 @@
 ### A Pluto.jl notebook ###
-# v0.19.2
+# v0.17.5
 
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 0edc7118-6cc1-4fbb-9ea6-aed8593c3088
+# ╔═╡ afc99004-ca7b-4e7b-8e0a-b93946bcb0c4
 begin
     using CSV
 	using DataFrames
@@ -13,35 +13,91 @@ begin
 	using Statistics
 	using DataFrames
 	using BrowseTables
-	using HTTP
+	using DelimitedFiles
 end
 
-# ╔═╡ 9476c0df-b247-4209-8f16-9f1e616d9363
+# ╔═╡ 3b8040cb-5cfa-4062-b607-fb56a8b60a56
 md"""
-### Dane
+## Sprawozdanie
+
+Zespół: Patryk Wojtyczek i Tomasz Rosiek
+
 """
 
-# ╔═╡ f0ccd034-9e11-4059-ad3d-df1d5f4eb86f
-begin 
-    data = CSV.read("results/bucket_size/res_1.tsv", DataFrame; delim=";")
-end
 
-# ╔═╡ f07e50ea-a1db-48f6-891c-3a9fa0ac1dda
+# ╔═╡ 8f6df00d-e440-4e6c-99c6-452463094154
 md"""
-### Czas wykonania
+### Część 1 - Poprawność danych
+
+> zbadać poprawność danych wejściowych dla założeń sortowania kubełkowego (proporcjonalne rozproszenie wartości danych wejściowych po określonych przedziałach wartości) - czy będzie możliwe dotrzymanie tych założeń? przy jakich warunkach? (część wspólna dla obu implementacji)
+
+
+Niech n to rozmiar tablicy do posortowania, a k to ilość kubełków.
+Złożoność algorytmu to wtedy:
+
+$$O(k \cdot O_{sort}(expected\_bucket\_size) + k)$$
+
+Algorytm sortowania kubełkowego zakłada, że dane wejściowe mają rozkład 
+jednostajny. Wtedy 
+$$expected\_bucket\_size = \frac{n}{k}$$, co daje następującą złożoność:
+
+$$O(k \cdot O_{sort}(\frac{n}{k}) + k)$$
+
+Gdy przyjmiemy dodatkowo, że $$k \approx n$$, to złożoność 
+$$O_{sort}(\frac{n}{k}) = O(1)$$, co daje liniową złożoność względem rozmiaru danych:
+
+$$O(k \cdot O_{sort}(1) + k) = O(n)$$
+
+Warto zauważyć, że gdyby dane wejściowe nie miały jednostajnego rozkładu to ryzykujemy
+sytuację w której więskszość danych wpada do jednego kubełka przez co złożoność sortowania
+zdegraduje się do złożoności wybranego algorytmu sortowania dla pojedyńczego kubełka 
+$$O(n \cdot log(n))$$ lub $$O(n^2)$$.
+
+Podsumowując założenia, które czynimy to:
+- liczba kubełków musi być zależna od rozmiaru danych (np. $$k =\frac{n}{10}$$)
+- dane muszą mieć rozkład jednostajny
+
+Jako, że to my jesteśmy odpowiedzialni za wygenerowanie danych to możemy dopilnować
+aby miały rozkład jednostajny (używając odpowiedniego generatora liczba losowych).
+W rzeczywistości musielibyśmy polegać na wiedzy, że dane które mamy mają taki rozkład.
+
+Liczba kubełków zależna od rozmiaru danych to założenie trywialne do spełnienia - wystarczy
+nie ustawiać na sztywno liczby kubełków.
+
+Tak więc sprawdźmy czy dane generowane przez nasz generator liczb losowych dają nam rozkład jednostajny.
 """
 
-# ╔═╡ c3f27652-5455-4819-acbe-9773416017bc
+
+# ╔═╡ d01f7e92-cd09-4dbe-943b-f2cc6032763a
+md"""
+Przedstawione dane pochodzą z wylosowania $$10^5$$ wartości równolegle z użyciem 8 wątków.
+Wygląd histogramu wskazuje, że dane faktycznie mają rozkład jednostajny.
+
+"""
+
+
+# ╔═╡ a549536f-b299-4e85-9b0a-e2022fe576d5
 begin
-    @df data plot([:overall, :writing, :sorting, :splitting, :generating] , legend=:topleft;
-        xlabel = "Size of buckets [Sztukis]", 
-        ylabel = "Time [s]", 
-        title = "Bucket size tests for sequential execution",
-		label = ["Overall" "Writing to buckets" "Sorting buckets" "Splitting to buckets" "Generating"],
-        lw=2,
-		linestyle=:dash,
-        marker = (:circle, 1))
+	generated_data = readdlm("results/generated_data.tsv", ';', Float64)
 end
+
+# ╔═╡ aa6f5104-7fb2-40b5-b5aa-f11dba9356df
+begin
+	generated_data_histogram_plot = histogram(vec(generated_data), 
+		label=nothing,
+		title="histogram danych od generatora", 
+		xlabel="przedział wartości danych", 
+		ylabel="liczba wartości w przedziale")
+end
+
+# ╔═╡ 9f13c2f8-848a-4e39-9099-6db3ef38c1d7
+md"""
+### Część 2 - zbadać zachowanie się algorytmu dla sort. sekwencyjnego (użyj tutaj sort. równol. dla jednego procesora) w zależności od liczby kubełków i wielkości danych wejściowych (czas wykonania sortowania w zależności od liczby kubełków, dla kilku wielkości danych wejściowych) - jak zachowują się poszczególne (dwa) algorytmy i jaki to ma wpływ na rząd złożoności algorytmów? Na podstawie tych badań wybierz parametry do dalszych badań. (osobno dla każdej implemenatcji)
+
+Zintegruj się z tym co zrobił Tomek.
+
+"""
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -49,7 +105,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 BrowseTables = "5f4fecfd-7eb0-5078-b7f6-ad1f2563c22a"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
-HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 Measurements = "eff96d63-e80a-5855-80a2-b1b0885c5ab7"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
@@ -58,7 +114,6 @@ StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 BrowseTables = "~0.3.0"
 CSV = "~0.10.4"
 DataFrames = "~1.3.3"
-HTTP = "~0.9.17"
 Measurements = "~2.7.1"
 StatsPlots = "~0.14.33"
 """
@@ -1258,10 +1313,12 @@ version = "0.9.1+5"
 """
 
 # ╔═╡ Cell order:
-# ╟─0edc7118-6cc1-4fbb-9ea6-aed8593c3088
-# ╠═9476c0df-b247-4209-8f16-9f1e616d9363
-# ╠═f0ccd034-9e11-4059-ad3d-df1d5f4eb86f
-# ╟─f07e50ea-a1db-48f6-891c-3a9fa0ac1dda
-# ╟─c3f27652-5455-4819-acbe-9773416017bc
+# ╟─3b8040cb-5cfa-4062-b607-fb56a8b60a56
+# ╟─8f6df00d-e440-4e6c-99c6-452463094154
+# ╟─d01f7e92-cd09-4dbe-943b-f2cc6032763a
+# ╟─afc99004-ca7b-4e7b-8e0a-b93946bcb0c4
+# ╟─a549536f-b299-4e85-9b0a-e2022fe576d5
+# ╟─aa6f5104-7fb2-40b5-b5aa-f11dba9356df
+# ╠═9f13c2f8-848a-4e39-9099-6db3ef38c1d7
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
