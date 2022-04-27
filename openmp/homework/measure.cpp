@@ -191,18 +191,20 @@ void parallel_bucket_sort_1(std::vector<double>& array, Measurement& measurement
   }
 
 #pragma omp parallel shared(buckets) firstprivate(no_buckets) num_threads(param_threads)
+
   {
 	int tid = omp_get_thread_num();
 
 	// we start by populating buckets
 	// each thread fills its own buckets.
 	double split_to_buckets_time = timeit([&] {
-	  for (size_t i = 0; i < array.size(); i++) {
-		int bucket_index = std::min((int)(no_buckets * array[i] / max), no_buckets - 1);
+	  for (size_t i = tid; i < tid + array.size(); i++) {
+		int bucket_index = std::min((int)(no_buckets * array[i % array.size()] / max), no_buckets - 1);
 
 		if (tid * buckets_per_thread <= bucket_index &&
-			bucket_index < (tid + 1) * buckets_per_thread) {
-		  buckets[bucket_index].push_back(array[i]);
+			(bucket_index < (tid + 1) * buckets_per_thread ||
+			tid == param_threads - 1) {
+		  buckets[bucket_index].push_back(array[i % array.size()]);
 		}
 	  }
 	});
