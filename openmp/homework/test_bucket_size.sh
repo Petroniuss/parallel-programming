@@ -16,4 +16,4 @@ function measure_alg() {
 }
 
 mkdir -p results/bucket_size
-measure_alg 3
+measure_alg $1
