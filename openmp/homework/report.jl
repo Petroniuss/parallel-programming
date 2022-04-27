@@ -211,7 +211,7 @@ dzielą się kubełkami, żeby każdy miał własny przedział danych do wpisani
 Problematyczne tutaj jest to, że wraz ze zwiększaniem ilości wątków każdy wątek dokłada kolejną listę kubełków. Jako, że algorytm wymaga 
 aby liczba kubełków $$≈ n$$ to możemy patrzeć na ten krok jako mnożenie sobie pracy przez ilość wątków. 
 Mimo tego, że wątki ładnie dzielą się danymi to dokładają sobie sporo pracy w momencie gdy trzeba te wszystkie dane zebrać i wpisać do wspólnych kubełków.
-Tak czy siak speedup udaje się uzyskać ale nie jest on tak spektakularny jak przy pozostałych etapach algorytmu.
+Tak czy siak speedup udaje się uzyskać ale nie jest on tak spektakularny jak przy pozostałych etapach algorytmu (spodziewałem się lepszego aczkolwiek żadnego błędu w kodzie się nie dopatrzyłem).
 
 """
 
@@ -276,6 +276,144 @@ begin
 	plot_sf!(alg_groupped, :overall, label="Overall")
 end
 
+
+# ╔═╡ a349ab5d-160f-4142-800e-daab659604f5
+md"""
+### Część 4
+
+>Porównaj 2 algorytmy między sobą (należy ustalić w grupach parametry dla obu testowanych implementacji tak, by można było je porównać; uwaga, niektóre algorytmu mogą się zachowywać lepiej w innym zakresie parametrów); wybierz takie wielkości problemu (wielkość danych, rozmiar kubełków), by najlepiej pokazać różnice między algorytmami - który z nich będzie się lepiej skalował (i dlaczego)?
+
+Pierwszy algorytm najlepiej zachowywał się dla rozmiaru kubełka ok. 10, natomiast algorytm trzeci - ok. 50. W obu przypadkach dobrze zrównoleglało się generowanie i zapisywanie danych do tablicy, natomiast algorytm trzeci lepiej radził sobie z etapem sortowania. W obu algorytmach źle zrównoleglało się dzielenie danych na kubełki.
+
+Uruchomiliśmy oba algorytmy dla rozmiaru kubełka 10 oraz 50 i przyjrzeliśmy się każdemu z etapów sortowania.
+"""
+
+# ╔═╡ 4db1b169-3448-4794-b0cd-30d5fa4e5898
+begin 
+    alg_data2 = CSV.read("results/comparision/res.tsv", DataFrame; delim=";")
+    alg_groupped2 = combine(groupby(alg_data2, [:threads, :algorithm, :bucket_size]), 
+		measure(:generating),
+		measure(:splitting),
+		measure(:sorting),
+		measure(:writing),
+		measure(:overall)
+	)
+end
+
+# ╔═╡ 262e125c-75ec-4600-9a8c-d499ca10f9ca
+begin
+	plot(ylabel="Przyśpieszenie", xlabel="threads", xticks=0:1:8, legend = :topleft, title="Writing speedup")
+
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 1), :writing, label="Size=10, Algorithm=1", color=:blue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 3), :writing, label="Size=10, Algorithm=3", color=:red)
+
+	
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 1), :writing, label="Size=50, Algorithm = 1", color=:cadetblue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 3), :writing, label="Size=50, Algorithm = 3", color=:red3)
+	plot!(x -> x, 1:8, label="")
+end
+
+# ╔═╡ 54760fc0-58b7-45c0-a506-e25c7c6949dc
+md"""
+W przypadku przyspieszenia samego sortowania zdecydowanym faworytem jest algorytm trzeci, co było do przewidzenia po problemach w zrównolegleniu tego etapu w algorytmie nr 1.
+"""
+
+# ╔═╡ 1786f011-03f7-4399-be49-27c747c505d7
+md"""
+Z zapisywaniem algorytmy radzą sobie porównywalnie dobrze, z niewielką, ale wyraźną przewagą algorytmu trzeciego. Jest to spowodowane zastosowaniem w nim algorytmu _parallel prefix sum_, który wyraźnie przyspiesza ten etap.
+"""
+
+# ╔═╡ ba1dc1bd-c4f9-4c6a-a3e5-7fef8d9d4254
+md"""
+Przyspieszenie etapu rozdzielenia danych do kubełków okazało się być decydującym czynnikiem, co możemy zaobserwować na powyższym wykresie całkowitego przyspieszenia obu algorytmów. Dla oby rozmiarów problemu większe przyspieszenie ma algorytm pierwszy.
+
+Mogło się okazać, że pomimo większego przyspieszenia, pierwszy algorytm i tak będzie sprawował się gorzej od algorytmu nr 3. Aby sprawdzić tę hipotezę, sprawdziliśmy całkowity czas wykonania obu algorytmów, dzięki czemu z niemal 100-procentową pewnością przekonaliśmy się, który algorytm lepiej poradził sobie w naszym eksperymencie.
+"""
+
+# ╔═╡ 1b556c15-f792-45c1-8190-99a9a06b1cab
+md"""
+Najniższy czas ma nadal algorytm nr 1, co potwierdziło wnioski z poprzedniego wykresu.
+"""
+
+
+# ╔═╡ 133e3e9f-2e13-4ce8-956f-a4f1230141a2
+begin
+
+	plot(ylabel="Przyśpieszenie", xlabel="threads", xticks=0:1:8, legend = :topleft, title="Generating speedup")
+
+
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 1), :generating, label="Size=10, Algorithm=1", color=:blue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 3), :generating, label="Size=10, Algorithm=3", color=:red)
+
+	
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 1), :generating, label="Size=50, Algorithm = 1", color=:cadetblue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 3), :generating, label="Size=50, Algorithm = 3", color=:red3)
+	plot!(x -> x, 1:8, label="")
+
+end
+
+# ╔═╡ e6254c2b-4e73-465e-84f9-f51b41e9c7ae
+begin
+	plot(ylabel="Czas wykonania [s]", xlabel="threads", xticks=0:1:8, legend = :topright, title="Overall execution time")
+
+	plot_time!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 1), :overall, label="Size=10, Algorithm=1", color=:blue)
+	plot_time!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 3), :overall, label="Size=10, Algorithm=3", color=:red)
+
+	
+	plot_time!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 1), :overall, label="Size=50, Algorithm = 1", color=:cadetblue)
+	plot_time!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 3), :overall, label="Size=50, Algorithm = 3", color=:red3)
+end
+
+# ╔═╡ b70842d1-7aa5-46db-a2b8-8eedff8bc3c9
+md"""
+Uśredniając, z podziałem na kubełki lepiej radzi sobie algorytm pierwszy. Jest to najbardziej czasochłonny etap algorytmu, zatem ten fakt może miec decydujący wpływ na wyniki całego eksperymentu. Gorszy wynik algorytmu trzeciego może być spowodowany czasem poświęconym na alokację wszystkich kubełków przez każdy wątek, podczas gdy algorytm pierwszy alokuje kubełki raz, a wątki jedynie przechodzą po tablicy i zapisują liczby do swojego podzbioru kubełków.
+"""
+
+# ╔═╡ 29d1e5c5-d0bc-483a-a3bd-98510d9028f3
+md"""
+Zgodnie z przewidywaniami, przyspieszenie generowania danych jest dla obu algorytmów porównywalne (wariant algorytmu nie ma wpływu na sposób generowania danych)
+"""
+
+# ╔═╡ 17be21e4-66f7-4685-898c-b4c1f16d973d
+begin
+	plot(ylabel="Przyśpieszenie", xlabel="threads", xticks=0:1:8, legend = :topleft, title="Overall speedup")
+
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 1), :overall, label="Size=10, Algorithm=1", color=:blue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 3), :overall, label="Size=10, Algorithm=3", color=:red)
+
+	
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 1), :overall, label="Size=50, Algorithm = 1", color=:cadetblue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 3), :overall, label="Size=50, Algorithm = 3", color=:red3)
+
+	plot!(x -> x, 1:8, label="")
+end
+
+# ╔═╡ 63be5bea-2617-4fd1-8c38-296bf715c86e
+begin
+	plot(ylabel="Przyśpieszenie", xlabel="threads", xticks=0:1:8, legend = :topleft, title="Splitting speedup")
+
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 1), :splitting, label="Size=10, Algorithm=1", color=:blue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 3), :splitting, label="Size=10, Algorithm=3", color=:red)
+
+	
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 1), :splitting, label="Size=50, Algorithm = 1", color=:cadetblue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 3), :splitting, label="Size=50, Algorithm = 3", color=:red3)
+	plot!(x -> x, 1:8, label="")
+end
+
+# ╔═╡ 31425d46-616b-43e3-9d0a-aa8d0c38d209
+begin
+	plot(ylabel="Przyśpieszenie", xlabel="threads", xticks=0:1:8, legend = :topleft, title="Sorting speedup")
+
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 1), :sorting, label="Size=10, Algorithm=1", color=:blue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 10, :algorithm => x -> x .== 3), :sorting, label="Size=10, Algorithm=3", color=:red)
+
+	
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 1), :sorting, label="Size=50, Algorithm = 1", color=:cadetblue)
+	plot_speedup!(subset(alg_groupped2, :bucket_size => x -> x .== 50, :algorithm => x -> x .== 3), :sorting, label="Size=50, Algorithm = 3", color=:red3)
+
+	plot!(x -> x, 1:8, label="")
+end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1504,11 +1642,25 @@ version = "0.9.1+5"
 # ╟─88b367de-ef33-4089-ae61-c7ca5ebd4bc7
 # ╟─97de3a11-a310-4935-9b0e-921168fd6edd
 # ╟─92dbf116-5e34-4dad-950a-96e52b8aea85
-# ╠═e7e6f0fa-dfff-4cb0-8669-c406361c9888
+# ╟─e7e6f0fa-dfff-4cb0-8669-c406361c9888
 # ╟─f2720cfb-bcf2-467b-afaa-62a8b6435804
 # ╟─a223bec1-7543-49f5-a14f-7cb841ff5111
 # ╟─b80af35d-2d59-4ef6-b5bb-6a625bd16f05
 # ╟─02ec2ad0-c9d4-460f-8555-496214208a36
 # ╟─135cd52a-d986-44ca-ab03-913c3e6e5d0a
+# ╟─a349ab5d-160f-4142-800e-daab659604f5
+# ╟─262e125c-75ec-4600-9a8c-d499ca10f9ca
+# ╟─4db1b169-3448-4794-b0cd-30d5fa4e5898
+# ╟─54760fc0-58b7-45c0-a506-e25c7c6949dc
+# ╟─1786f011-03f7-4399-be49-27c747c505d7
+# ╟─ba1dc1bd-c4f9-4c6a-a3e5-7fef8d9d4254
+# ╟─1b556c15-f792-45c1-8190-99a9a06b1cab
+# ╟─133e3e9f-2e13-4ce8-956f-a4f1230141a2
+# ╟─e6254c2b-4e73-465e-84f9-f51b41e9c7ae
+# ╟─b70842d1-7aa5-46db-a2b8-8eedff8bc3c9
+# ╟─29d1e5c5-d0bc-483a-a3bd-98510d9028f3
+# ╟─17be21e4-66f7-4685-898c-b4c1f16d973d
+# ╟─63be5bea-2617-4fd1-8c38-296bf715c86e
+# ╟─31425d46-616b-43e3-9d0a-aa8d0c38d209
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
