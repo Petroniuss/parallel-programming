@@ -1,21 +1,19 @@
 #!/bin/bash
 
-`make clean`
-`make all`
+make clean
+make all
 
-if [ $# -eq 1 ];
-then
-    THREADS=1
-else 
-    THREADS=$2
-fi
-SIZE=100000000
-VERSION=$1
+threads=1
+size=1000000
 
-mkdir results/bucket_size
-echo "size;generating;splitting;sorting;writing;overall" > results/bucket_size/res_${VERSION}.tsv
+function measure_alg() {
+  version=$1
+  res_file="results/bucket_size/res_${version}.tsv"
+  echo "bucket_size;threads;algorithm;generating;splitting;sorting;writing;overall" >"$res_file"
+  for i in {1..100}; do
+    ./build/measure --threads="${threads}" --size="${size}" --repeat=3 --version="${version}" --bucket-size="${i}" | tee -a "$res_file"
+  done
+}
 
-for i in {1..100}
-do
-    `./build/measure --threads=${THREADS} --size=${SIZE} --repeat=1 --version=${VERSION} --bucket-size=${i} --log-format=1 >>  results/bucket_size/res_${VERSION}.tsv`
-done
+mkdir -p results/bucket_size
+measure_alg 3
