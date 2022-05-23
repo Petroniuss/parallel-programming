@@ -20,7 +20,17 @@ impl Reducer for WordcountReducer {
 
         for value in values {
             // parse each value sum them all to obtain total appearances
-            count += std::str::from_utf8(value).unwrap().parse::<usize>().unwrap();
+            let value = std::str::from_utf8(value);
+            if value.is_err() {
+                continue;
+            }
+
+            let value = value.unwrap().parse::<usize>();
+            if value.is_err() {
+                continue;
+            }
+
+            count += value.unwrap();
         }
 
         // write the word and the total count as bytes
