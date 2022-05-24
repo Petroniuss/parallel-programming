@@ -18,3 +18,8 @@ path = "src/mapper.rs"
 doc = false
 name = "wordcount_reducer"
 path = "src/reducer.rs"
+
+[[bin]]
+doc = false
+name = "wordcount_single"
+path = "src/single.rs"
