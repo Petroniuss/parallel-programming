@@ -1,4 +1,3 @@
-//! Mapper binary for the MapReduce word counter example.
 extern crate efflux;
 extern crate regex;
 

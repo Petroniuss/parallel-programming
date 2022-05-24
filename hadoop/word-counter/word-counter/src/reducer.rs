@@ -1,4 +1,3 @@
-//! Reducer binary for the MapReduce word counter example.
 extern crate efflux;
 
 use efflux::prelude::{Context, Reducer};
@@ -13,7 +12,6 @@ struct WordcountReducer;
 
 // Reducing stage implementation.
 impl Reducer for WordcountReducer {
-    /// Reduction implementation for the word counter example.
     fn reduce(&mut self, key: &[u8], values: &[&[u8]], ctx: &mut Context) {
         // base counter
         let mut count = 0;
